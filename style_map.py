@@ -16,6 +16,7 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 KNOWN_LABELS = {
     "Bold text",
     "Italic text",
+    "Code block text",
 }
 
 

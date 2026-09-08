@@ -202,10 +202,11 @@ def _merge_run_style(rpr: ET.Element, style: RunStyle) -> None:
 
 
 def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
-    """Post-process output DOCX to apply template run styles to bold/italic runs in Normal paragraphs."""
+    """Post-process output DOCX to apply template run styles to bold, italic, and code runs."""
     italic_style = style_map.get("Italic text")
     bold_style = style_map.get("Bold text")
-    if not italic_style and not bold_style:
+    code_style = style_map.get("Code block text")
+    if not italic_style and not bold_style and not code_style:
         return
 
     with zipfile.ZipFile(docx_path, 'r') as zin:
@@ -229,16 +230,29 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
         if para_style in _SKIP:
             continue
 
+        is_code_para = para_style == 'SourceCode'
+
         for r in p.findall(f'{{{W}}}r'):
             rpr = r.find(f'{{{W}}}rPr')
             if rpr is None:
+                if is_code_para and code_style:
+                    # Run has no rPr — create one and merge
+                    rpr = ET.SubElement(r, f'{{{W}}}rPr')
+                    _merge_run_style(rpr, code_style)
+                    modified = True
                 continue
-            has_italic = rpr.find(f'{{{W}}}i') is not None
-            has_bold = rpr.find(f'{{{W}}}b') is not None
-            if has_italic and italic_style:
+            rStyle_el = rpr.find(f'{{{W}}}rStyle')
+            is_verbatim = (
+                rStyle_el is not None
+                and rStyle_el.get(f'{{{W}}}val') == 'VerbatimChar'
+            )
+            if (is_verbatim or is_code_para) and code_style:
+                _merge_run_style(rpr, code_style)
+                modified = True
+            elif rpr.find(f'{{{W}}}i') is not None and italic_style:
                 _merge_run_style(rpr, italic_style)
                 modified = True
-            elif has_bold and bold_style:
+            elif rpr.find(f'{{{W}}}b') is not None and bold_style:
                 _merge_run_style(rpr, bold_style)
                 modified = True
 
@@ -286,6 +300,7 @@ def inject_title_styles(text: str, para_styles: set[str]) -> str:
 _EXTENSION_CONSTRUCTS = [
     (r'\*\*\S', "Bold text", "**bold**"),
     (r'(?<!\*)\*(?!\*)\S', "Italic text", "*italic*"),
+    (r'`', "Code block text", "`code`"),
 ]
 
 

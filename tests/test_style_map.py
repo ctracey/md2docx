@@ -134,6 +134,7 @@ def test_raises_on_duplicate_label(tmp_path):
 def test_all_known_labels_constant():
     assert "Bold text" in KNOWN_LABELS
     assert "Italic text" in KNOWN_LABELS
+    assert "Code block text" in KNOWN_LABELS
     assert "Normal text" not in KNOWN_LABELS
     assert "Title text" not in KNOWN_LABELS
     assert "Subtitle text" not in KNOWN_LABELS
@@ -220,6 +221,49 @@ def test_apply_does_not_modify_heading_runs(headings_md, template, tmp_path):
                 fonts = r.find(f'{{{W}}}rPr/{{{W}}}rFonts')
                 if fonts is not None:
                     assert fonts.get(f'{{{W}}}ascii') != "ShouldNotAppear"
+
+
+def test_apply_adds_font_to_inline_code_runs(code_blocks_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    _pandoc_only(code_blocks_md, template, out)
+
+    style_map = {"Code block text": RunStyle(font="CodeFont", color="333333")}
+    apply_run_styles(out, style_map)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    verbatim_runs = [
+        r for r in root.findall(f'.//{{{W}}}r')
+        if r.find(f'{{{W}}}rPr/{{{W}}}rStyle') is not None
+        and r.find(f'{{{W}}}rPr/{{{W}}}rStyle').get(f'{{{W}}}val') == 'VerbatimChar'
+    ]
+    assert verbatim_runs, "No VerbatimChar runs found"
+    for r in verbatim_runs:
+        fonts = r.find(f'{{{W}}}rPr/{{{W}}}rFonts')
+        assert fonts is not None, "rFonts not added to inline code run"
+        assert fonts.get(f'{{{W}}}ascii') == "CodeFont"
+
+
+def test_apply_adds_font_to_code_block_runs(code_blocks_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    _pandoc_only(code_blocks_md, template, out)
+
+    style_map = {"Code block text": RunStyle(font="CodeFont")}
+    apply_run_styles(out, style_map)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    source_paras = [
+        p for p in root.findall(f'.//{{{W}}}p')
+        if p.find(f'.//{{{W}}}pStyle') is not None
+        and p.find(f'.//{{{W}}}pStyle').get(f'{{{W}}}val') == 'SourceCode'
+    ]
+    assert source_paras, "No SourceCode paragraphs found"
+    for p in source_paras:
+        for r in p.findall(f'{{{W}}}r'):
+            fonts = r.find(f'{{{W}}}rPr/{{{W}}}rFonts')
+            assert fonts is not None, "rFonts not added to code block run"
+            assert fonts.get(f'{{{W}}}ascii') == "CodeFont"
 
 
 def test_apply_noop_when_style_map_empty(inline_formatting_md, template, tmp_path):

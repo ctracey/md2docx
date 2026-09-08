@@ -53,3 +53,8 @@ def consecutive_lines_md():
 @pytest.fixture
 def title_subtitle_md():
     return FIXTURES / "title_subtitle.md"
+
+
+@pytest.fixture
+def code_blocks_md():
+    return FIXTURES / "code_blocks.md"

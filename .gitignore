@@ -2,4 +2,4 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.docx
-!sample/TEMPLATE.docx
+!sample/sample-style.docx

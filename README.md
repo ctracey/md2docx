@@ -21,24 +21,86 @@ python generate.py <content.md> <template.docx> <output.docx>
 **Example:**
 
 ```
-python generate.py test/content.md test/TEMPLATE.docx test/output.docx
+python generate.py ref/template-content.md ref/template-style.docx output.docx
 ```
 
-### Markdown features
+## Sample
 
-| Markdown | DOCX output |
+The `sample/` folder contains a working example that exercises every supported feature:
+
+| File | Purpose |
 |---|---|
-| `# Heading 1` | Heading 1 style |
-| `## Heading 2` | Heading 2 style |
-| `### Heading 3` | Heading 3 style |
-| `- item` | Real Word bullet (numPr) |
-| Plain paragraph | Body text style |
-| `**bold**` | Bold run |
-| `*italic*` | Italic run |
-| Blank line | Empty paragraph (preserves vertical spacing) |
+| `sample/sample-content.md` | Content file demonstrating all syntax conventions |
+| `sample/sample-style.docx` | Matching style template with all required labels defined |
 
-Bullets are real Word list items (not dash characters), inheriting the
-template's list styling.
+Run it:
+
+```
+python generate.py sample/sample-content.md sample/sample-style.docx sample/output.docx
+```
+
+The content file covers: title (`%`), subtitle (`%%`), all six heading levels, bold, italic, inline code, fenced code blocks, bullets, right-aligned tab stops (`>>`), horizontal rule (`---`), and page break (`===`).
+
+## Style mapping
+
+| Markdown content | DOCX style mapping | DOCX output |
+|---|---|---|
+| `# H1` – `###### H6` | Heading 1–6 style | Heading 1–6 style |
+| `%Title` | Title style | Title style |
+| `%%Subtitle` | Subtitle style | Subtitle style |
+| Plain paragraph | Normal style | Normal style |
+| `**bold**` | Bold text label | Bold run |
+| `*italic*` | Italic text label | Italic run |
+| `` `code` `` or ` ``` ` | Code block text label | Code run / Code paragraph |
+| `- item` | Bullet point text label | Real Word list item |
+| `left >> right` or `>> right` | RightAlignedTabStop | Right tab stop on same line |
+| `===` (exactly three) | — | Page break |
+| `---` (three or more) | — | Horizontal rule |
+| Single newline | — | New paragraph (no gap) |
+| Blank line | — | Visible empty paragraph |
+
+**Native mappings** (headings, bullets, blank lines) are applied automatically by pandoc using the named paragraph styles in the template.
+
+**Label mappings** (Bold text, Italic text, Code block text, Bullet point text, RightAlignedTabStop) are discovered by scanning the template body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error. The Code block label applies to both inline backtick code and fenced code blocks.
+
+**Right-aligned tab stop (`>>`):** the `RightAlignedTabStop` label is special — it must be a paragraph demonstrating a right-aligned tab stop (validated on load; errors if the paragraph has no right-aligned tab in its pPr). Use `>>` anywhere on a line to split it: text before `>>` stays left, text after `>>` is pulled to the right tab stop position. Works in headings and body text alike. Nothing on the left is valid.
+
+```
+## Section heading >> 2024-01
+
+Normal text >> right aligned note
+
+>> purely right aligned
+```
+
+**Title and Subtitle** are matched directly to the `Title` and `Subtitle` paragraph styles defined in the template. Prefix a line with `%` for Title or `%%` for Subtitle — each can appear anywhere in the document independently.
+
+```
+%My Document Title
+%%My Document Subtitle
+
+# Section One
+
+%%An inline subtitle anywhere
+```
+
+### Line breaks
+
+This converter treats **every newline as a paragraph break**, not a soft wrap. Standard markdown collapses a single newline into a space; this tool does not.
+
+```
+normal text       ← paragraph 1
+**bold text**     ← paragraph 2 (immediately follows, no gap)
+*italic text*     ← paragraph 3
+```
+
+An **explicit blank line** inserts a visible empty paragraph:
+
+```
+paragraph one
+
+paragraph two     ← blank paragraph appears between these two
+```
 
 ## Repository structure
 
@@ -68,23 +130,6 @@ Run the suite:
 
 ```
 pytest tests/ -v
-```
-
-**Test results (12 tests):**
-
-```
-test_missing_content_file          PASSED  — exits 1 when content file absent
-test_missing_template_file         PASSED  — exits 1 when template absent
-test_creates_output_file           PASSED  — output file is written
-test_prints_generated_path         PASSED  — stdout confirms output path
-test_output_is_valid_ooxml         PASSED  — output is a valid OOXML package
-test_heading1_style                PASSED  — # maps to Heading1
-test_heading2_style                PASSED  — ## maps to Heading2
-test_heading3_style                PASSED  — ### maps to Heading3
-test_bullets_are_real_word_lists   PASSED  — bullets have numPr (real lists)
-test_bullet_text_present           PASSED  — bullet text is in output
-test_plain_paragraphs_present      PASSED  — body paragraphs are in output
-test_sample_letter                 PASSED  — full letter round-trip
 ```
 
 > **Note on test inspection:** The template embeds DM Sans fonts whose MIME

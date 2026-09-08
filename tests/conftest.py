@@ -1,14 +1,25 @@
+import subprocess
+import sys
 import pytest
 from pathlib import Path
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE = Path(__file__).parent.parent / "ref"
+SCRIPT = Path(__file__).parent.parent / "generate.py"
+
+
+def run_generator(args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT)] + args,
+        capture_output=True,
+        text=True,
+    )
 
 
 @pytest.fixture
 def template(tmp_path):
     """Copy the sample template into a temp dir to avoid mutation."""
-    src = SAMPLE / "TEMPLATE.docx"
+    src = SAMPLE / "template-style.docx"
     dst = tmp_path / "TEMPLATE.docx"
     dst.write_bytes(src.read_bytes())
     return dst
@@ -25,10 +36,40 @@ def headings_md():
 
 
 @pytest.fixture
-def sample_md():
-    return SAMPLE / "content.md"
+def leading_blank_md():
+    return FIXTURES / "leading_blank.md"
 
 
 @pytest.fixture
-def leading_blank_md():
-    return FIXTURES / "leading_blank.md"
+def inline_formatting_md():
+    return FIXTURES / "inline_formatting.md"
+
+
+@pytest.fixture
+def consecutive_lines_md():
+    return FIXTURES / "consecutive_lines.md"
+
+
+@pytest.fixture
+def title_subtitle_md():
+    return FIXTURES / "title_subtitle.md"
+
+
+@pytest.fixture
+def code_blocks_md():
+    return FIXTURES / "code_blocks.md"
+
+
+@pytest.fixture
+def right_tab_md():
+    return FIXTURES / "right_tab.md"
+
+
+@pytest.fixture
+def mixed_content_md():
+    return FIXTURES / "mixed_content.md"
+
+
+@pytest.fixture
+def page_break_md():
+    return FIXTURES / "page_break.md"

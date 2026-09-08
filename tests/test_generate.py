@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from generate import inject_blank_paragraphs
+from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER, inject_page_break_markers, _PAGE_BREAK_MARKER, _PAGE_BREAK_XML
+from style_map import RunStyle
 
 SCRIPT = Path(__file__).parent.parent / "generate.py"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -60,6 +61,63 @@ def _has_real_bullets(path: Path) -> bool:
     )
 
 
+def _has_bold_run(path: Path) -> bool:
+    root = _document_xml(path)
+    return any(
+        r.find(f"{{{W}}}rPr/{{{W}}}b") is not None
+        for r in root.findall(f".//{{{W}}}r")
+    )
+
+
+def _has_italic_run(path: Path) -> bool:
+    root = _document_xml(path)
+    return any(
+        r.find(f"{{{W}}}rPr/{{{W}}}i") is not None
+        for r in root.findall(f".//{{{W}}}r")
+    )
+
+
+# ---------------------------------------------------------------------------
+# mark_soft_newlines / restore_soft_newlines unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_mark_soft_newlines_converts_single():
+    result = mark_soft_newlines("line one\nline two")
+    assert "\n" not in result
+    assert "line one" in result and "line two" in result
+
+
+def test_mark_soft_newlines_leaves_double_newline():
+    result = mark_soft_newlines("para one\n\npara two")
+    assert "\n\n" in result
+
+
+def test_mark_soft_newlines_leaves_triple_newline():
+    result = mark_soft_newlines("para one\n\n\npara two")
+    assert "\n\n\n" in result
+
+
+def test_restore_soft_newlines_produces_paragraph_break():
+    marked = mark_soft_newlines("line one\nline two")
+    restored = restore_soft_newlines(marked)
+    assert restored == "line one\n\nline two"
+
+
+def test_single_newline_does_not_produce_blank_paragraph():
+    """Single newlines must NOT insert a \\ empty paragraph."""
+    marked = mark_soft_newlines("line one\nline two")
+    result = restore_soft_newlines(inject_blank_paragraphs(marked))
+    assert "\\ " not in result
+
+
+def test_blank_line_still_produces_blank_paragraph():
+    """Explicit blank lines must still insert a \\ empty paragraph."""
+    marked = mark_soft_newlines("line one\n\nline two")
+    result = restore_soft_newlines(inject_blank_paragraphs(marked))
+    assert "\\ " in result
+
+
 # ---------------------------------------------------------------------------
 # inject_blank_paragraphs unit tests
 # ---------------------------------------------------------------------------
@@ -103,6 +161,219 @@ def test_inject_two_leading_blank_lines_produce_two_empty_paragraphs():
 
 
 # ---------------------------------------------------------------------------
+# inject_page_break_markers unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_page_break_replaces_exactly_three_equals():
+    result = inject_page_break_markers("===")
+    assert result == _PAGE_BREAK_MARKER
+
+
+def test_page_break_not_triggered_by_more_equals():
+    for s in ("====", "==", "=", "====="):
+        assert inject_page_break_markers(s) == s
+
+
+def test_page_break_not_triggered_by_equals_with_extra():
+    assert inject_page_break_markers("=== ") == "=== "
+    assert inject_page_break_markers(" ===") == " ==="
+
+
+def test_page_break_marker_survives_pipeline():
+    text = "before\n===\nafter"
+    marked = inject_page_break_markers(text)
+    processed = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(marked)))
+    assert _PAGE_BREAK_MARKER in processed
+
+
+def test_page_break_xml_inserted_after_pipeline():
+    text = "before\n===\nafter"
+    marked = inject_page_break_markers(text)
+    processed = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(marked)))
+    final = processed.replace(_PAGE_BREAK_MARKER, _PAGE_BREAK_XML)
+    assert _PAGE_BREAK_XML in final
+    assert _PAGE_BREAK_MARKER not in final
+
+
+def test_page_break_produces_br_in_output(page_break_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(page_break_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        doc_xml = zf.read("word/document.xml").decode()
+    assert 'w:type="page"' in doc_xml, "No page break element found in output"
+
+
+# ---------------------------------------------------------------------------
+# inject_right_tab_markers unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_right_tab_replaces_double_chevron():
+    result = inject_right_tab_markers("left >> right")
+    assert ">>" not in result
+    assert _RT_MARKER in result
+
+
+def test_right_tab_splits_correctly():
+    result = inject_right_tab_markers("left >> right")
+    assert result == f"left {_RT_MARKER}right"
+
+
+def test_right_tab_no_left_text():
+    result = inject_right_tab_markers(">> right only")
+    assert result == f"{_RT_MARKER}right only"
+
+
+def test_right_tab_in_heading():
+    result = inject_right_tab_markers("## Heading >> Meta")
+    assert f"## Heading {_RT_MARKER}Meta" == result
+
+
+def test_right_tab_strips_space_after_chevron():
+    result = inject_right_tab_markers("left >>   right")
+    assert result == f"left {_RT_MARKER}right"
+
+
+def test_right_tab_only_first_occurrence():
+    result = inject_right_tab_markers("a >> b >> c")
+    assert result.count(_RT_MARKER) == 1
+
+
+def test_right_tab_unchanged_when_no_chevron():
+    result = inject_right_tab_markers("normal line")
+    assert result == "normal line"
+
+
+def test_right_tab_applied_in_output(right_tab_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(right_tab_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    # Verify tab elements exist in the output
+    tabs = root.findall(f'.//{{{W}}}tab')
+    assert tabs, "No <w:tab/> elements found — right tab stops not applied"
+
+
+def test_right_tab_stop_in_ppr(right_tab_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(right_tab_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    # At least one paragraph should have a right tab stop in its pPr
+    right_tabs = [
+        t for t in root.findall(f'.//{{{W}}}pPr/{{{W}}}tabs/{{{W}}}tab')
+        if t.get(f'{{{W}}}val') == 'right'
+    ]
+    assert right_tabs, "No right tab stop found in any paragraph pPr"
+
+
+# ---------------------------------------------------------------------------
+# inject_title_styles unit tests
+# ---------------------------------------------------------------------------
+
+_TITLE_STYLES = {"Title", "Subtitle"}
+_TITLE_ONLY = {"Title"}
+
+
+def test_inject_title_wraps_percent_line():
+    result = inject_title_styles("%My Title\n", _TITLE_STYLES)
+    assert '::: {custom-style="Title"}' in result
+    assert "My Title" in result
+
+
+def test_inject_subtitle_wraps_double_percent_line():
+    result = inject_title_styles("%%My Subtitle\n", _TITLE_STYLES)
+    assert '::: {custom-style="Subtitle"}' in result
+    assert "My Subtitle" in result
+
+
+def test_inject_title_and_subtitle_independently():
+    result = inject_title_styles("%Title\n\n# Heading\n\n%%Subtitle\n", _TITLE_STYLES)
+    assert '::: {custom-style="Title"}' in result
+    assert '::: {custom-style="Subtitle"}' in result
+
+
+def test_inject_double_percent_not_matched_as_title():
+    result = inject_title_styles("%%Subtitle\n", _TITLE_STYLES)
+    assert result.count(":::") == 2  # one div only
+    assert '::: {custom-style="Title"}' not in result
+
+
+def test_inject_title_strips_leading_space_after_sigil():
+    result = inject_title_styles("% My Title\n", _TITLE_STYLES)
+    assert "My Title" in result
+    assert " My Title" not in result
+
+
+def test_inject_title_skips_when_no_styles_defined():
+    result = inject_title_styles("%Title\n%%Subtitle\n", set())
+    assert ":::" not in result
+
+
+def test_inject_title_only_when_subtitle_style_absent():
+    result = inject_title_styles("%Title\n%%Subtitle\n", _TITLE_ONLY)
+    assert '::: {custom-style="Title"}' in result
+    assert '::: {custom-style="Subtitle"}' not in result
+
+
+def test_non_percent_lines_are_unchanged():
+    result = inject_title_styles("# Heading\nBody\n", _TITLE_STYLES)
+    assert ":::" not in result
+
+
+def test_title_subtitle_paragraph_styles_in_output(title_subtitle_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(title_subtitle_md), str(template), str(out)])
+    styles = _paragraph_styles(out)
+    assert any("Title" == s for s in styles), f"No Title style found in {styles}"
+    assert any("Subtitle" == s for s in styles), f"No Subtitle style found in {styles}"
+
+
+# ---------------------------------------------------------------------------
+# check_required_styles unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_no_error_when_required_labels_present():
+    style_map = {"Bold text": RunStyle(bold=True), "Italic text": RunStyle(italic=True)}
+    check_required_styles("**bold** and *italic*", style_map)  # must not raise/exit
+
+
+def test_no_error_for_plain_content_with_no_labels():
+    check_required_styles("Just plain text with no bold or italic.", {})
+
+
+def test_error_when_bold_used_but_label_missing(tmp_path):
+    md = tmp_path / "content.md"
+    md.write_text("**bold text** here")
+    result = run([str(md), "nonexistent.docx", str(tmp_path / "out.docx")])
+    # Fails on missing template before reaching style check — use direct call instead
+    with pytest.raises(SystemExit):
+        check_required_styles("**bold text** here", {})
+
+
+def test_error_message_names_missing_label():
+    import io as _io
+    from contextlib import redirect_stderr
+    try:
+        check_required_styles("**bold**", {})
+    except SystemExit as e:
+        assert "Bold text" in str(e)
+        assert "README" in str(e)
+
+
+def test_error_when_italic_used_but_label_missing():
+    with pytest.raises(SystemExit):
+        check_required_styles("*italic text* here", {})
+
+
+def test_no_error_when_bold_absent_from_content():
+    # template has no Bold text label — fine because content has no bold
+    check_required_styles("Plain paragraph only.", {})
+
+
+# ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
 
@@ -138,6 +409,86 @@ def test_prints_generated_path(simple_md, template, tmp_path):
     assert str(out) in result.stdout
 
 
+def test_no_headers_when_template_has_none(simple_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(simple_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        names = zf.namelist()
+        doc_xml = zf.read("word/document.xml")
+    assert not any("header" in n.lower() for n in names)
+    assert b"headerReference" not in doc_xml
+
+
+def test_headers_copied_from_template_when_present(simple_md, tmp_path):
+    """When the template has a header, the output must contain that exact header."""
+    import io as _io
+
+    # Build a minimal template docx that declares one header file
+    HEADER_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:p><w:r><w:t>TEMPLATE HEADER</w:t></w:r></w:p>'
+        b'</w:hdr>'
+    )
+    DOC_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        b' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        b'<w:body><w:p><w:r><w:t>body</w:t></w:r></w:p>'
+        b'<w:sectPr>'
+        b'<w:headerReference r:id="rId2" w:type="default"/>'
+        b'</w:sectPr></w:body></w:document>'
+    )
+    RELS_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        b'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        b'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>'
+        b'</Relationships>'
+    )
+    CT_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        b'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        b'<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        b'</Types>'
+    )
+
+    tmpl_path = tmp_path / "tmpl_with_header.docx"
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('word/document.xml', DOC_XML)
+        zf.writestr('word/header1.xml', HEADER_XML)
+        zf.writestr('word/_rels/document.xml.rels', RELS_XML)
+        zf.writestr('[Content_Types].xml', CT_XML)
+        zf.writestr('_rels/.rels', b'<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
+    tmpl_path.write_bytes(buf.getvalue())
+
+    # Start with an output that has no headers (simulating pandoc without a header)
+    out = tmp_path / "out.docx"
+    out.write_bytes(buf.getvalue())  # use the template itself as a base output
+
+    sync_headers(out, tmpl_path)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        names = zf.namelist()
+        out_doc = zf.read('word/document.xml')
+        header_content = zf.read('word/header1.xml')
+
+    assert 'word/header1.xml' in names
+    assert b'TEMPLATE HEADER' in header_content
+    assert b'headerReference' in out_doc
+
+
+def test_no_bookmarks_in_output(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        doc_xml = zf.read("word/document.xml")
+    assert b"bookmarkStart" not in doc_xml
+    assert b"bookmarkEnd" not in doc_xml
+
+
 def test_output_is_valid_ooxml(simple_md, template, tmp_path):
     out = tmp_path / "out.docx"
     run([str(simple_md), str(template), str(out)])
@@ -169,6 +520,24 @@ def test_heading3_style(headings_md, template, tmp_path):
     out = tmp_path / "out.docx"
     run([str(headings_md), str(template), str(out)])
     assert any("Heading3" in s for s in _paragraph_styles(out))
+
+
+def test_heading4_style(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    assert any("Heading4" in s for s in _paragraph_styles(out))
+
+
+def test_heading5_style(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    assert any("Heading5" in s for s in _paragraph_styles(out))
+
+
+def test_heading6_style(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    assert any("Heading6" in s for s in _paragraph_styles(out))
 
 
 def test_bullets_are_real_word_lists(simple_md, template, tmp_path):
@@ -215,16 +584,43 @@ def test_two_leading_blank_lines_produce_two_empty_paragraphs(leading_blank_md, 
 
 
 # ---------------------------------------------------------------------------
-# Sample letter round-trip
+# Line-per-paragraph behaviour
 # ---------------------------------------------------------------------------
 
 
-def test_sample_letter(sample_md, template, tmp_path):
-    out = tmp_path / "letter.docx"
-    result = run([str(sample_md), str(template), str(out)])
-    assert result.returncode == 0, result.stderr
-    assert out.exists()
-    texts = " ".join(_paragraph_texts(out))
-    assert "Kaluza" in texts
-    assert "Chris Tracey" in texts
-    assert _has_real_bullets(out)
+def test_consecutive_lines_produce_separate_paragraphs(consecutive_lines_md, template, tmp_path):
+    """Each line in the source must become its own paragraph in the docx."""
+    out = tmp_path / "out.docx"
+    run([str(consecutive_lines_md), str(template), str(out)])
+    texts = _paragraph_texts(out)
+    non_empty = [t for t in texts if t.strip()]
+    assert any("normal text" in t for t in non_empty)
+    assert any("bold text" in t for t in non_empty)
+    assert any("italic text" in t for t in non_empty)
+
+
+def test_consecutive_lines_no_blank_paragraph_between(consecutive_lines_md, template, tmp_path):
+    """Single newlines must not insert a blank paragraph between lines."""
+    out = tmp_path / "out.docx"
+    run([str(consecutive_lines_md), str(template), str(out)])
+    texts = _paragraph_texts(out)
+    non_empty_indices = [i for i, t in enumerate(texts) if t.strip()]
+    # The three content paragraphs must be consecutive (no gaps)
+    assert non_empty_indices == list(range(non_empty_indices[0], non_empty_indices[0] + 3))
+
+
+# ---------------------------------------------------------------------------
+# Inline formatting
+# ---------------------------------------------------------------------------
+
+
+def test_bold_produces_bold_run(inline_formatting_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(inline_formatting_md), str(template), str(out)])
+    assert _has_bold_run(out), "No bold run found in output"
+
+
+def test_italic_produces_italic_run(inline_formatting_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(inline_formatting_md), str(template), str(out)])
+    assert _has_italic_run(out), "No italic run found in output"

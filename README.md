@@ -35,13 +35,13 @@ python generate.py ref/template-content.md ref/template-style.docx output.docx
 | `**bold**` | Bold text label | Bold run |
 | `*italic*` | Italic text label | Italic run |
 | `` `code` `` or ` ``` ` | Code block text label | Code run / Code paragraph |
-| `- item` | List style | Real Word list item |
+| `- item` | Bullet point text label | Real Word list item |
 | Single newline | — | New paragraph (no gap) |
 | Blank line | — | Visible empty paragraph |
 
 **Native mappings** (headings, bullets, blank lines) are applied automatically by pandoc using the named paragraph styles in the template.
 
-**Label mappings** (Bold text, Italic text, Code block text) are discovered by scanning the template body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error. The Code block label applies to both inline backtick code and fenced code blocks.
+**Label mappings** (Bold text, Italic text, Code block text, Bullet point text) are discovered by scanning the template body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error. The Code block label applies to both inline backtick code and fenced code blocks.
 
 **Title and Subtitle** are matched directly to the `Title` and `Subtitle` paragraph styles defined in the template. Prefix a line with `%` for Title or `%%` for Subtitle — each can appear anywhere in the document independently.
 

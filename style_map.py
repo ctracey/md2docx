@@ -17,6 +17,7 @@ KNOWN_LABELS = {
     "Bold text",
     "Italic text",
     "Code block text",
+    "Bullet point text",
 }
 
 
@@ -29,6 +30,8 @@ class RunStyle:
     bold: bool = False
     italic: bool = False
     para_style: str | None = None     # paragraph style ID (e.g. "Title", "Subtitle")
+    ind_left: int | None = None       # w:ind w:left (twips)
+    ind_hanging: int | None = None    # w:ind w:hanging (twips)
 
     @property
     def size_pt(self) -> float | None:
@@ -93,6 +96,15 @@ def read_style_map(template_path: Path) -> dict[str, RunStyle]:
         rpr = first_run.find(f'{{{W}}}rPr') if first_run is not None else None
         run_style = _parse_rpr(rpr) if rpr is not None else RunStyle()
         run_style.para_style = para_style
+
+        if ppr is not None:
+            ind_el = ppr.find(f'{{{W}}}ind')
+            if ind_el is not None:
+                left = ind_el.get(f'{{{W}}}left')
+                hanging = ind_el.get(f'{{{W}}}hanging')
+                if left: run_style.ind_left = int(left)
+                if hanging: run_style.ind_hanging = int(hanging)
+
         found[text] = run_style
 
     return found

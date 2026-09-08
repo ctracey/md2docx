@@ -185,6 +185,20 @@ def sync_headers(docx_path: Path, template_path: Path) -> None:
     _write_zip(docx_path, out_names, out_files)
 
 
+def _merge_para_indent(ppr: ET.Element, style: RunStyle) -> bool:
+    """Apply indentation from style to a pPr element. Returns True if changed."""
+    if style.ind_left is None and style.ind_hanging is None:
+        return False
+    ind_el = ppr.find(f'{{{W}}}ind')
+    if ind_el is None:
+        ind_el = ET.SubElement(ppr, f'{{{W}}}ind')
+    if style.ind_left is not None:
+        ind_el.set(f'{{{W}}}left', str(style.ind_left))
+    if style.ind_hanging is not None:
+        ind_el.set(f'{{{W}}}hanging', str(style.ind_hanging))
+    return True
+
+
 def _merge_run_style(rpr: ET.Element, style: RunStyle) -> None:
     """Add template-defined properties to an rPr element without overriding existing ones."""
     if style.font is not None and rpr.find(f'{{{W}}}rFonts') is None:
@@ -206,7 +220,8 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
     italic_style = style_map.get("Italic text")
     bold_style = style_map.get("Bold text")
     code_style = style_map.get("Code block text")
-    if not italic_style and not bold_style and not code_style:
+    bullet_style = style_map.get("Bullet point text")
+    if not italic_style and not bold_style and not code_style and not bullet_style:
         return
 
     with zipfile.ZipFile(docx_path, 'r') as zin:
@@ -231,14 +246,19 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
             continue
 
         is_code_para = para_style == 'SourceCode'
+        ppr_el = p.find(f'{{{W}}}pPr')
+        is_bullet_para = bullet_style and ppr_el is not None and ppr_el.find(f'{{{W}}}numPr') is not None
 
         for r in p.findall(f'{{{W}}}r'):
             rpr = r.find(f'{{{W}}}rPr')
             if rpr is None:
                 if is_code_para and code_style:
-                    # Run has no rPr — create one and merge
                     rpr = ET.SubElement(r, f'{{{W}}}rPr')
                     _merge_run_style(rpr, code_style)
+                    modified = True
+                elif is_bullet_para:
+                    rpr = ET.SubElement(r, f'{{{W}}}rPr')
+                    _merge_run_style(rpr, bullet_style)
                     modified = True
                 continue
             rStyle_el = rpr.find(f'{{{W}}}rStyle')
@@ -249,12 +269,18 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
             if (is_verbatim or is_code_para) and code_style:
                 _merge_run_style(rpr, code_style)
                 modified = True
+            elif is_bullet_para:
+                _merge_run_style(rpr, bullet_style)
+                modified = True
             elif rpr.find(f'{{{W}}}i') is not None and italic_style:
                 _merge_run_style(rpr, italic_style)
                 modified = True
             elif rpr.find(f'{{{W}}}b') is not None and bold_style:
                 _merge_run_style(rpr, bold_style)
                 modified = True
+
+        if is_bullet_para and _merge_para_indent(ppr_el, bullet_style):
+            modified = True
 
     if not modified:
         return

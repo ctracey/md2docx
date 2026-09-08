@@ -135,6 +135,7 @@ def test_all_known_labels_constant():
     assert "Bold text" in KNOWN_LABELS
     assert "Italic text" in KNOWN_LABELS
     assert "Code block text" in KNOWN_LABELS
+    assert "Bullet point text" in KNOWN_LABELS
     assert "Normal text" not in KNOWN_LABELS
     assert "Title text" not in KNOWN_LABELS
     assert "Subtitle text" not in KNOWN_LABELS
@@ -264,6 +265,28 @@ def test_apply_adds_font_to_code_block_runs(code_blocks_md, template, tmp_path):
             fonts = r.find(f'{{{W}}}rPr/{{{W}}}rFonts')
             assert fonts is not None, "rFonts not added to code block run"
             assert fonts.get(f'{{{W}}}ascii') == "CodeFont"
+
+
+def test_apply_adds_font_to_bullet_runs(simple_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    _pandoc_only(simple_md, template, out)
+
+    style_map = {"Bullet point text": RunStyle(font="BulletFont", color="444444")}
+    apply_run_styles(out, style_map)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    bullet_paras = [
+        p for p in root.findall(f'.//{{{W_NS}}}p')
+        if p.find(f'{{{W_NS}}}pPr/{{{W_NS}}}numPr') is not None
+    ]
+    assert bullet_paras, "No bullet paragraphs found"
+    for p in bullet_paras:
+        for r in p.findall(f'{{{W_NS}}}r'):
+            fonts = r.find(f'{{{W_NS}}}rPr/{{{W_NS}}}rFonts')
+            assert fonts is not None, "rFonts not added to bullet run"
+            assert fonts.get(f'{{{W_NS}}}ascii') == "BulletFont"
 
 
 def test_apply_noop_when_style_map_empty(inline_formatting_md, template, tmp_path):

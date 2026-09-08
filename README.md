@@ -24,6 +24,23 @@ python generate.py <content.md> <template.docx> <output.docx>
 python generate.py ref/template-content.md ref/template-style.docx output.docx
 ```
 
+## Sample
+
+The `sample/` folder contains a working example that exercises every supported feature:
+
+| File | Purpose |
+|---|---|
+| `sample/sample-content.md` | Content file demonstrating all syntax conventions |
+| `sample/sample-style.docx` | Matching style template with all required labels defined |
+
+Run it:
+
+```
+python generate.py sample/sample-content.md sample/sample-style.docx sample/output.docx
+```
+
+The content file covers: title (`%`), subtitle (`%%`), all six heading levels, bold, italic, inline code, fenced code blocks, bullets, right-aligned tab stops (`>>`), horizontal rule (`---`), and page break (`===`).
+
 ## Style mapping
 
 | Markdown content | DOCX style mapping | DOCX output |

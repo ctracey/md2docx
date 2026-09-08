@@ -42,13 +42,17 @@ These are handled automatically by pandoc using the named paragraph styles defin
 
 Run-level styles (font, size, colour, etc.) are discovered by scanning the style template for labelled example paragraphs. Each label is a paragraph whose full text exactly matches one of the names below. The run formatting of that paragraph defines how the corresponding markdown construct is rendered.
 
-| Markdown | Template label |
-|---|---|
-| Plain text | `Normal text` |
-| `**bold**` | `Bold text` |
-| `*italic*` | `Italic text` |
+| Markdown | Template label | Notes |
+|---|---|---|
+| First line of document | `Title text` | Must precede any heading or blank line |
+| Second line of document | `Subtitle text` | Must immediately follow the title line |
+| Plain text | `Normal text` | |
+| `**bold**` | `Bold text` | |
+| `*italic*` | `Italic text` | |
 
-**How to define a style:** add a paragraph to the style template with the exact label text, formatted as you want that construct to appear. Each label must appear exactly once — duplicate labels are an error.
+**Title and Subtitle convention:** if the style template defines `Title text` and/or `Subtitle text` labels, the first plain line of the content file is styled as Title and the immediately following plain line as Subtitle. A blank line or heading before either line disables the detection for that position.
+
+**How to define a style:** add a paragraph to the style template with the exact label text, styled as you want that construct to appear. Each label must appear exactly once — duplicate labels are an error.
 
 ### Line breaks
 

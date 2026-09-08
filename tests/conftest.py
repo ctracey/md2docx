@@ -48,3 +48,8 @@ def inline_formatting_md():
 @pytest.fixture
 def consecutive_lines_md():
     return FIXTURES / "consecutive_lines.md"
+
+
+@pytest.fixture
+def title_subtitle_md():
+    return FIXTURES / "title_subtitle.md"

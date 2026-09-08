@@ -257,6 +257,40 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
     docx_path.write_bytes(buf.getvalue())
 
 
+_SPECIAL_LINE_RE = re.compile(r'^(#{1,6}\s|[-*+]\s|>\s|```|\s*$)')
+
+
+def inject_title_styles(text: str, style_map: dict[str, RunStyle]) -> str:
+    """Wrap the first one or two plain lines in pandoc custom-style fenced divs.
+
+    Convention: the first non-special line of the document becomes the Title
+    paragraph; the immediately following non-special line becomes the Subtitle.
+    Lines starting with #, -, >, ``` or blank are considered 'special' and
+    break the title/subtitle detection.
+    """
+    title_entry = style_map.get("Title text")
+    subtitle_entry = style_map.get("Subtitle text")
+    if not title_entry:
+        return text
+
+    title_style = title_entry.para_style or "Title"
+    subtitle_style = subtitle_entry.para_style if subtitle_entry else "Subtitle"
+
+    lines = text.split('\n')
+    out = []
+    i = 0
+
+    if i < len(lines) and not _SPECIAL_LINE_RE.match(lines[i]):
+        out += [f'::: {{custom-style="{title_style}"}}', lines[i], ':::']
+        i += 1
+        if subtitle_entry and i < len(lines) and not _SPECIAL_LINE_RE.match(lines[i]):
+            out += [f'::: {{custom-style="{subtitle_style}"}}', lines[i], ':::']
+            i += 1
+
+    out += lines[i:]
+    return '\n'.join(out)
+
+
 _EXTENSION_CONSTRUCTS = [
     (r'\*\*\S', "Bold text", "**bold**"),
     (r'(?<!\*)\*(?!\*)\S', "Italic text", "*italic*"),
@@ -309,6 +343,7 @@ def main():
 
     raw = args.content.read_text()
     check_required_styles(raw, style_map)
+    raw = inject_title_styles(raw, style_map)
     modified = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(raw)))
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as tmp:

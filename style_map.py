@@ -17,17 +17,20 @@ KNOWN_LABELS = {
     "Normal text",
     "Bold text",
     "Italic text",
+    "Title text",
+    "Subtitle text",
 }
 
 
 @dataclass
 class RunStyle:
-    """Run-level formatting properties extracted from a style label paragraph."""
+    """Formatting properties extracted from a style label paragraph."""
     font: str | None = None
     size_half_pt: int | None = None   # OOXML sz (half-points; divide by 2 for pt)
     color: str | None = None          # hex colour without #
     bold: bool = False
     italic: bool = False
+    para_style: str | None = None     # paragraph style ID (e.g. "Title", "Subtitle")
 
     @property
     def size_pt(self) -> float | None:
@@ -84,8 +87,14 @@ def read_style_map(template_path: Path) -> dict[str, RunStyle]:
                 f"Style label '{text}' appears more than once in the template. "
                 "Each label must appear exactly once."
             )
+        ppr = p.find(f'{{{W}}}pPr')
+        style_el = ppr.find(f'{{{W}}}pStyle') if ppr is not None else None
+        para_style = style_el.get(f'{{{W}}}val') if style_el is not None else None
+
         first_run = next((r for r in p.findall(f'{{{W}}}r')), None)
         rpr = first_run.find(f'{{{W}}}rPr') if first_run is not None else None
-        found[text] = _parse_rpr(rpr) if rpr is not None else RunStyle()
+        run_style = _parse_rpr(rpr) if rpr is not None else RunStyle()
+        run_style.para_style = para_style
+        found[text] = run_style
 
     return found

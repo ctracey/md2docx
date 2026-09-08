@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles
+from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles
 from style_map import RunStyle
 
 SCRIPT = Path(__file__).parent.parent / "generate.py"
@@ -158,6 +158,59 @@ def test_inject_two_leading_blank_lines_produce_two_empty_paragraphs():
     result = inject_blank_paragraphs("\n\nPara one.")
     assert result.startswith("\\ ")
     assert result.count("\\ ") == 2
+
+
+# ---------------------------------------------------------------------------
+# inject_title_styles unit tests
+# ---------------------------------------------------------------------------
+
+_TITLE_MAP = {
+    "Title text": RunStyle(para_style="Title"),
+    "Subtitle text": RunStyle(para_style="Subtitle"),
+}
+
+
+def test_inject_title_wraps_first_line():
+    result = inject_title_styles("My Title\nMy Subtitle\n\n# Heading\n", _TITLE_MAP)
+    assert '::: {custom-style="Title"}' in result
+    assert "My Title" in result
+
+
+def test_inject_subtitle_wraps_second_line():
+    result = inject_title_styles("My Title\nMy Subtitle\n\n# Heading\n", _TITLE_MAP)
+    assert '::: {custom-style="Subtitle"}' in result
+    assert "My Subtitle" in result
+
+
+def test_inject_title_only_when_no_subtitle_label():
+    style_map = {"Title text": RunStyle(para_style="Title")}
+    result = inject_title_styles("My Title\nMy Subtitle\n", style_map)
+    assert '::: {custom-style="Title"}' in result
+    assert '::: {custom-style="Subtitle"}' not in result
+
+
+def test_inject_title_skips_when_first_line_is_heading():
+    result = inject_title_styles("# Heading\nBody\n", _TITLE_MAP)
+    assert '::: {custom-style="Title"}' not in result
+
+
+def test_inject_title_skips_when_no_title_label():
+    result = inject_title_styles("My Title\nMy Subtitle\n", {})
+    assert ":::" not in result
+
+
+def test_inject_title_stops_subtitle_at_blank_line():
+    result = inject_title_styles("My Title\n\nNot Subtitle\n", _TITLE_MAP)
+    assert '::: {custom-style="Title"}' in result
+    assert '::: {custom-style="Subtitle"}' not in result
+
+
+def test_title_subtitle_paragraph_styles_in_output(title_subtitle_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(title_subtitle_md), str(template), str(out)])
+    styles = _paragraph_styles(out)
+    assert any("Title" == s for s in styles), f"No Title style found in {styles}"
+    assert any("Subtitle" == s for s in styles), f"No Subtitle style found in {styles}"
 
 
 # ---------------------------------------------------------------------------

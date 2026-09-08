@@ -17,8 +17,6 @@ KNOWN_LABELS = {
     "Normal text",
     "Bold text",
     "Italic text",
-    "Title text",
-    "Subtitle text",
 }
 
 
@@ -98,3 +96,16 @@ def read_style_map(template_path: Path) -> dict[str, RunStyle]:
         found[text] = run_style
 
     return found
+
+
+def read_paragraph_style_ids(template_path: Path) -> set[str]:
+    """Return the set of paragraph style IDs defined in the template's styles.xml."""
+    with zipfile.ZipFile(str(template_path)) as zf:
+        with zf.open('word/styles.xml') as f:
+            root = ET.parse(f).getroot()
+    return {
+        style.get(f'{{{W}}}styleId')
+        for style in root.findall(f'{{{W}}}style')
+        if style.get(f'{{{W}}}type') == 'paragraph'
+        and style.get(f'{{{W}}}styleId')
+    }

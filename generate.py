@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
-from style_map import RunStyle, read_style_map
+from style_map import RunStyle, read_style_map, read_paragraph_style_ids
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -257,7 +257,7 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
     docx_path.write_bytes(buf.getvalue())
 
 
-def inject_title_styles(text: str, style_map: dict[str, RunStyle]) -> str:
+def inject_title_styles(text: str, para_styles: set[str]) -> str:
     """Replace % and %% prefix lines with pandoc custom-style fenced divs.
 
     Convention:
@@ -265,23 +265,19 @@ def inject_title_styles(text: str, style_map: dict[str, RunStyle]) -> str:
       %%<text>  → Subtitle paragraph (any line starting with %%)
     Each can appear anywhere in the document, independently of the other.
     %% is tested first so it is not misread as a single-% line.
+    Silently passes through if the template does not define the style.
     """
-    title_entry = style_map.get("Title text")
-    subtitle_entry = style_map.get("Subtitle text")
-    if not title_entry and not subtitle_entry:
+    has_title = "Title" in para_styles
+    has_subtitle = "Subtitle" in para_styles
+    if not has_title and not has_subtitle:
         return text
-
-    title_style = title_entry.para_style if title_entry else "Title"
-    subtitle_style = subtitle_entry.para_style if subtitle_entry else "Subtitle"
 
     out = []
     for line in text.split('\n'):
-        if subtitle_entry and line.startswith('%%'):
-            content = line[2:].lstrip()
-            out += [f'::: {{custom-style="{subtitle_style}"}}', content, ':::']
-        elif title_entry and line.startswith('%'):
-            content = line[1:].lstrip()
-            out += [f'::: {{custom-style="{title_style}"}}', content, ':::']
+        if has_subtitle and line.startswith('%%'):
+            out += ['::: {custom-style="Subtitle"}', line[2:].lstrip(), ':::']
+        elif has_title and line.startswith('%'):
+            out += ['::: {custom-style="Title"}', line[1:].lstrip(), ':::']
         else:
             out.append(line)
     return '\n'.join(out)
@@ -336,10 +332,11 @@ def main():
         style_map = read_style_map(args.template)
     except ValueError as e:
         sys.exit(f"Error: {e}")
+    para_styles = read_paragraph_style_ids(args.template)
 
     raw = args.content.read_text()
     check_required_styles(raw, style_map)
-    raw = inject_title_styles(raw, style_map)
+    raw = inject_title_styles(raw, para_styles)
     modified = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(raw)))
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as tmp:

@@ -140,6 +140,8 @@ def test_all_known_labels_constant():
     assert "Normal text" in KNOWN_LABELS
     assert "Bold text" in KNOWN_LABELS
     assert "Italic text" in KNOWN_LABELS
+    assert "Title text" not in KNOWN_LABELS
+    assert "Subtitle text" not in KNOWN_LABELS
 
 
 # ---------------------------------------------------------------------------

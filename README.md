@@ -37,6 +37,8 @@ python generate.py ref/template-content.md ref/template-style.docx output.docx
 | `` `code` `` or ` ``` ` | Code block text label | Code run / Code paragraph |
 | `- item` | Bullet point text label | Real Word list item |
 | `left >> right` or `>> right` | RightAlignedTabStop | Right tab stop on same line |
+| `===` (exactly three) | — | Page break |
+| `---` (three or more) | — | Horizontal rule |
 | Single newline | — | New paragraph (no gap) |
 | Blank line | — | Visible empty paragraph |
 

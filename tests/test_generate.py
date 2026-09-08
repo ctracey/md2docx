@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER
+from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER, inject_page_break_markers, _PAGE_BREAK_MARKER, _PAGE_BREAK_XML
 from style_map import RunStyle
 
 SCRIPT = Path(__file__).parent.parent / "generate.py"
@@ -158,6 +158,50 @@ def test_inject_two_leading_blank_lines_produce_two_empty_paragraphs():
     result = inject_blank_paragraphs("\n\nPara one.")
     assert result.startswith("\\ ")
     assert result.count("\\ ") == 2
+
+
+# ---------------------------------------------------------------------------
+# inject_page_break_markers unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_page_break_replaces_exactly_three_equals():
+    result = inject_page_break_markers("===")
+    assert result == _PAGE_BREAK_MARKER
+
+
+def test_page_break_not_triggered_by_more_equals():
+    for s in ("====", "==", "=", "====="):
+        assert inject_page_break_markers(s) == s
+
+
+def test_page_break_not_triggered_by_equals_with_extra():
+    assert inject_page_break_markers("=== ") == "=== "
+    assert inject_page_break_markers(" ===") == " ==="
+
+
+def test_page_break_marker_survives_pipeline():
+    text = "before\n===\nafter"
+    marked = inject_page_break_markers(text)
+    processed = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(marked)))
+    assert _PAGE_BREAK_MARKER in processed
+
+
+def test_page_break_xml_inserted_after_pipeline():
+    text = "before\n===\nafter"
+    marked = inject_page_break_markers(text)
+    processed = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(marked)))
+    final = processed.replace(_PAGE_BREAK_MARKER, _PAGE_BREAK_XML)
+    assert _PAGE_BREAK_XML in final
+    assert _PAGE_BREAK_MARKER not in final
+
+
+def test_page_break_produces_br_in_output(page_break_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(page_break_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        doc_xml = zf.read("word/document.xml").decode()
+    assert 'w:type="page"' in doc_xml, "No page break element found in output"
 
 
 # ---------------------------------------------------------------------------

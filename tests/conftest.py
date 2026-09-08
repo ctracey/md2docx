@@ -68,3 +68,8 @@ def right_tab_md():
 @pytest.fixture
 def mixed_content_md():
     return FIXTURES / "mixed_content.md"
+
+
+@pytest.fixture
+def page_break_md():
+    return FIXTURES / "page_break.md"

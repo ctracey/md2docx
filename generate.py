@@ -18,6 +18,24 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
 _SOFT_NL = '\x00'
+_PAGE_BREAK_MARKER = ''   # U+E002 PUA — survives preprocessing pipeline
+_PAGE_BREAK_XML = (
+    '```{=openxml}\n'
+    '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+    '<w:r><w:br w:type="page"/></w:r></w:p>\n'
+    '```'
+)
+
+
+def inject_page_break_markers(text: str) -> str:
+    """Replace lines that are exactly '===' with a page-break sentinel.
+
+    The sentinel travels through the preprocessing pipeline untouched.
+    It is swapped for the pandoc raw OpenXML page-break block after
+    restore_soft_newlines, so the fenced block syntax is never mangled.
+    """
+    lines = text.split('\n')
+    return '\n'.join(_PAGE_BREAK_MARKER if line == '===' else line for line in lines)
 
 
 def mark_soft_newlines(text: str) -> str:
@@ -506,9 +524,11 @@ def main():
     raw = args.content.read_text()
     check_required_styles(raw, style_map)
     raw = inject_title_styles(raw, para_styles)
+    raw = inject_page_break_markers(raw)
     if right_tab:
         raw = inject_right_tab_markers(raw)
     modified = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(raw)))
+    modified = modified.replace(_PAGE_BREAK_MARKER, _PAGE_BREAK_XML)
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as tmp:
         tmp.write(modified)

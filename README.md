@@ -26,31 +26,23 @@ python generate.py ref/template-content.md ref/template-style.docx output.docx
 
 ## Style mapping
 
-Styles are applied through two mechanisms: native mappings and extension mappings.
-
-### Native mappings
-
-These are handled automatically by pandoc using the named paragraph styles defined in the template. No configuration required.
-
-| Markdown | Template style |
-|---|---|
-| `# Heading 1` through `###### Heading 6` | Heading 1–6 |
-| `- item` | List style (real Word list items) |
-| Plain paragraph | Body text |
-
-### Extension mappings
-
-Run-level styles (font, size, colour, etc.) are discovered by scanning the style template for labelled example paragraphs. Each label is a paragraph whose full text exactly matches one of the names below. The run formatting of that paragraph defines how the corresponding markdown construct is rendered.
-
-| Markdown | Template label | Notes |
+| Markdown content | DOCX style mapping | DOCX output |
 |---|---|---|
-| `%Title text` | `Title text` | |
-| `%%Subtitle text` | `Subtitle text` | |
-| Plain text | `Normal text` | |
-| `**bold**` | `Bold text` | |
-| `*italic*` | `Italic text` | |
+| `# H1` – `###### H6` | Heading 1–6 style | Heading 1–6 style |
+| `%Title` | Title style | Title style |
+| `%%Subtitle` | Subtitle style | Subtitle style |
+| Plain paragraph | Normal style | Normal style |
+| `**bold**` | Bold text label | Bold run |
+| `*italic*` | Italic text label | Italic run |
+| `- item` | List style | Real Word list item |
+| Single newline | — | New paragraph (no gap) |
+| Blank line | — | Visible empty paragraph |
 
-**Title and Subtitle convention:** prefix a line with `%` for Title or `%%` for Subtitle. Each can appear anywhere in the document independently. `%%` is always tested before `%` so double-percent lines are never misread as a title.
+**Native mappings** (headings, bullets, blank lines) are applied automatically by pandoc using the named paragraph styles in the template.
+
+**Label mappings** (Bold text, Italic text) are discovered by scanning the template body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error.
+
+**Title and Subtitle** are matched directly to the `Title` and `Subtitle` paragraph styles defined in the template. Prefix a line with `%` for Title or `%%` for Subtitle — each can appear anywhere in the document independently.
 
 ```
 %My Document Title
@@ -60,8 +52,6 @@ Run-level styles (font, size, colour, etc.) are discovered by scanning the style
 
 %%An inline subtitle anywhere
 ```
-
-**How to define a style:** add a paragraph to the style template with the exact label text, styled as you want that construct to appear. Each label must appear exactly once — duplicate labels are an error.
 
 ### Line breaks
 

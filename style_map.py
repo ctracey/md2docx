@@ -14,7 +14,6 @@ import zipfile
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 KNOWN_LABELS = {
-    "Normal text",
     "Bold text",
     "Italic text",
 }

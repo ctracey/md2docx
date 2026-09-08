@@ -130,16 +130,11 @@ def test_raises_on_duplicate_label(tmp_path):
         read_style_map(tmpl)
 
 
-def test_no_rpr_returns_empty_run_style(tmp_path):
-    tmpl = _make_docx([_para_xml("Normal text")], tmp_path)
-    style = read_style_map(tmpl)["Normal text"]
-    assert style == RunStyle()
-
 
 def test_all_known_labels_constant():
-    assert "Normal text" in KNOWN_LABELS
     assert "Bold text" in KNOWN_LABELS
     assert "Italic text" in KNOWN_LABELS
+    assert "Normal text" not in KNOWN_LABELS
     assert "Title text" not in KNOWN_LABELS
     assert "Subtitle text" not in KNOWN_LABELS
 

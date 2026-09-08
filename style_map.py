@@ -110,6 +110,63 @@ def read_style_map(template_path: Path) -> dict[str, RunStyle]:
     return found
 
 
+def read_right_tab_stop(template_path: Path) -> dict | None:
+    """Find 'RightAlignedTabStop' in the template body and return its tab stop definition.
+
+    Returns a dict with 'val', 'pos', and 'leader' keys, or None if the label
+    is absent (feature disabled). Raises ValueError if the label is present but
+    the paragraph has no right-aligned tab stop in its pPr.
+    """
+    with zipfile.ZipFile(str(template_path)) as zf:
+        raw = zf.read('word/document.xml').decode()
+
+    import re as _re
+    paras = _re.findall(r'<w:p[ >].*?</w:p>', raw, _re.DOTALL)
+    for p in paras:
+        texts = _re.findall(r'<w:t[^>]*>([^<]*)</w:t>', p)
+        if 'RightAlignedTabStop' not in ''.join(texts):
+            continue
+
+        # Validate: must have a right-aligned tab stop in pPr
+        tab_def = None
+        for m in _re.finditer(r'<w:tab\b([^>]*)/?>', p):
+            attrs = m.group(1)
+            val = _re.search(r'w:val="([^"]+)"', attrs)
+            pos = _re.search(r'w:pos="([^"]+)"', attrs)
+            leader = _re.search(r'w:leader="([^"]+)"', attrs)
+            if val and val.group(1) == 'right' and pos:
+                tab_def = {
+                    'val': 'right',
+                    'pos': pos.group(1),
+                    'leader': leader.group(1) if leader else 'none',
+                }
+                break
+        if tab_def is None:
+            raise ValueError(
+                "The 'RightAlignedTabStop' paragraph was found in the template but "
+                "does not define a right-aligned tab stop (w:val=\"right\") in its pPr. "
+                "See README — Style mapping."
+            )
+
+        # Extract run properties from the run containing "RightAlignedTabStop" text
+        right_style = None
+        runs = _re.findall(r'<w:r[ >].*?</w:r>', p, _re.DOTALL)
+        for run in runs:
+            run_texts = _re.findall(r'<w:t[^>]*>([^<]*)</w:t>', run)
+            if 'RightAlignedTabStop' in ''.join(run_texts):
+                rpr_match = _re.search(r'<w:rPr>(.*?)</w:rPr>', run, _re.DOTALL)
+                if rpr_match:
+                    rpr_el = ET.fromstring(
+                        f'<w:rPr xmlns:w="{W}">{rpr_match.group(1)}</w:rPr>'
+                    )
+                    right_style = _parse_rpr(rpr_el)
+                break
+
+        tab_def['right_style'] = right_style
+        return tab_def
+    return None
+
+
 def read_paragraph_style_ids(template_path: Path) -> set[str]:
     """Return the set of paragraph style IDs defined in the template's styles.xml."""
     with zipfile.ZipFile(str(template_path)) as zf:

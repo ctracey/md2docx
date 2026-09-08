@@ -36,12 +36,23 @@ python generate.py ref/template-content.md ref/template-style.docx output.docx
 | `*italic*` | Italic text label | Italic run |
 | `` `code` `` or ` ``` ` | Code block text label | Code run / Code paragraph |
 | `- item` | Bullet point text label | Real Word list item |
+| `left >> right` or `>> right` | RightAlignedTabStop | Right tab stop on same line |
 | Single newline | — | New paragraph (no gap) |
 | Blank line | — | Visible empty paragraph |
 
 **Native mappings** (headings, bullets, blank lines) are applied automatically by pandoc using the named paragraph styles in the template.
 
-**Label mappings** (Bold text, Italic text, Code block text, Bullet point text) are discovered by scanning the template body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error. The Code block label applies to both inline backtick code and fenced code blocks.
+**Label mappings** (Bold text, Italic text, Code block text, Bullet point text, RightAlignedTabStop) are discovered by scanning the template body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error. The Code block label applies to both inline backtick code and fenced code blocks.
+
+**Right-aligned tab stop (`>>`):** the `RightAlignedTabStop` label is special — it must be a paragraph demonstrating a right-aligned tab stop (validated on load; errors if the paragraph has no right-aligned tab in its pPr). Use `>>` anywhere on a line to split it: text before `>>` stays left, text after `>>` is pulled to the right tab stop position. Works in headings and body text alike. Nothing on the left is valid.
+
+```
+## Section heading >> 2024-01
+
+Normal text >> right aligned note
+
+>> purely right aligned
+```
 
 **Title and Subtitle** are matched directly to the `Title` and `Subtitle` paragraph styles defined in the template. Prefix a line with `%` for Title or `%%` for Subtitle — each can appear anywhere in the document independently.
 

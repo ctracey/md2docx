@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
-from style_map import RunStyle, read_style_map, read_paragraph_style_ids
+from style_map import RunStyle, read_style_map, read_paragraph_style_ids, read_right_tab_stop
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -185,6 +185,25 @@ def sync_headers(docx_path: Path, template_path: Path) -> None:
     _write_zip(docx_path, out_names, out_files)
 
 
+def _build_rpr(style: RunStyle) -> ET.Element:
+    """Build a fresh w:rPr element from a RunStyle."""
+    rpr = ET.Element(f'{{{W}}}rPr')
+    if style.font:
+        fonts = ET.SubElement(rpr, f'{{{W}}}rFonts')
+        for attr in ('ascii', 'hAnsi', 'cs', 'eastAsia'):
+            fonts.set(f'{{{W}}}{attr}', style.font)
+    if style.bold:
+        ET.SubElement(rpr, f'{{{W}}}b')
+    if style.italic:
+        ET.SubElement(rpr, f'{{{W}}}i')
+    if style.color:
+        ET.SubElement(rpr, f'{{{W}}}color').set(f'{{{W}}}val', style.color)
+    if style.size_half_pt:
+        ET.SubElement(rpr, f'{{{W}}}sz').set(f'{{{W}}}val', str(style.size_half_pt))
+        ET.SubElement(rpr, f'{{{W}}}szCs').set(f'{{{W}}}val', str(style.size_half_pt))
+    return rpr
+
+
 def _merge_para_indent(ppr: ET.Element, style: RunStyle) -> bool:
     """Apply indentation from style to a pPr element. Returns True if changed."""
     if style.ind_left is None and style.ind_hanging is None:
@@ -253,11 +272,13 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
             rpr = r.find(f'{{{W}}}rPr')
             if rpr is None:
                 if is_code_para and code_style:
-                    rpr = ET.SubElement(r, f'{{{W}}}rPr')
+                    rpr = ET.Element(f'{{{W}}}rPr')
+                    r.insert(0, rpr)  # rPr must be first child of w:r
                     _merge_run_style(rpr, code_style)
                     modified = True
                 elif is_bullet_para:
-                    rpr = ET.SubElement(r, f'{{{W}}}rPr')
+                    rpr = ET.Element(f'{{{W}}}rPr')
+                    r.insert(0, rpr)  # rPr must be first child of w:r
                     _merge_run_style(rpr, bullet_style)
                     modified = True
                 continue
@@ -281,6 +302,107 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
 
         if is_bullet_para and _merge_para_indent(ppr_el, bullet_style):
             modified = True
+
+    if not modified:
+        return
+
+    new_xml = ET.tostring(root, encoding='unicode')
+    files['word/document.xml'] = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        + new_xml.encode('utf-8')
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for name in names:
+            zout.writestr(name, files[name])
+    docx_path.write_bytes(buf.getvalue())
+
+
+_RT_MARKER = ''
+
+
+def inject_right_tab_markers(text: str) -> str:
+    """Replace >> with a sentinel so pandoc does not interpret it as a blockquote.
+
+    Convention: left text >> right text
+    Any >> on a line becomes a right-aligned tab stop separator.
+    Nothing to the left of >> is valid (purely right-aligned).
+    """
+    lines = text.split('\n')
+    out = []
+    for line in lines:
+        if '>>' in line:
+            line = re.sub(r'>>\s*', _RT_MARKER, line, count=1)
+        out.append(line)
+    return '\n'.join(out)
+
+
+def apply_right_tab_stops(docx_path: Path, tab_stop: dict) -> None:
+    """Split runs at RT_MARKER, insert <w:tab/>, and apply tab stop definition to pPr."""
+    with zipfile.ZipFile(docx_path, 'r') as zin:
+        names = zin.namelist()
+        files = {name: zin.read(name) for name in names}
+
+    doc_bytes = files['word/document.xml']
+    for m in re.finditer(rb'xmlns:(\w+)="([^"]+)"', doc_bytes):
+        ET.register_namespace(m.group(1).decode(), m.group(2).decode())
+
+    root = ET.fromstring(doc_bytes)
+    modified = False
+
+    for p in root.findall(f'.//{{{W}}}p'):
+        all_text = ''.join(t.text or '' for t in p.findall(f'.//{{{W}}}t'))
+        if _RT_MARKER not in all_text:
+            continue
+
+        for r in list(p.findall(f'{{{W}}}r')):
+            t_el = r.find(f'{{{W}}}t')
+            if t_el is None or not t_el.text or _RT_MARKER not in t_el.text:
+                continue
+
+            left_text, right_text = t_el.text.split(_RT_MARKER, 1)
+            rpr = r.find(f'{{{W}}}rPr')
+            right_style = tab_stop.get('right_style')
+            run_idx = list(p).index(r)
+            p.remove(r)
+
+            def _make_run(txt, use_rpr=None):
+                rn = ET.Element(f'{{{W}}}r')
+                if use_rpr is not None:
+                    rn.append(ET.fromstring(ET.tostring(use_rpr)))
+                te = ET.SubElement(rn, f'{{{W}}}t')
+                te.text = txt
+                if txt and (txt[0] == ' ' or txt[-1] == ' '):
+                    te.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+                return rn
+
+            right_rpr = _build_rpr(right_style) if right_style else rpr
+
+            # Insert in reverse order at run_idx so final order is left, tab, right
+            if right_text:
+                p.insert(run_idx, _make_run(right_text, right_rpr))
+            r_tab = ET.Element(f'{{{W}}}r')
+            if rpr is not None:
+                r_tab.append(ET.fromstring(ET.tostring(rpr)))
+            ET.SubElement(r_tab, f'{{{W}}}tab')
+            p.insert(run_idx, r_tab)
+            if left_text:
+                p.insert(run_idx, _make_run(left_text))
+
+            # Inject tab stop into paragraph pPr
+            ppr_el = p.find(f'{{{W}}}pPr')
+            if ppr_el is None:
+                ppr_el = ET.SubElement(p, f'{{{W}}}pPr')
+            tabs_el = ppr_el.find(f'{{{W}}}tabs')
+            if tabs_el is None:
+                tabs_el = ET.SubElement(ppr_el, f'{{{W}}}tabs')
+            tab_el = ET.SubElement(tabs_el, f'{{{W}}}tab')
+            tab_el.set(f'{{{W}}}val', tab_stop['val'])
+            tab_el.set(f'{{{W}}}pos', tab_stop['pos'])
+            tab_el.set(f'{{{W}}}leader', tab_stop['leader'])
+
+            modified = True
+            break
 
     if not modified:
         return
@@ -371,6 +493,7 @@ def main():
 
     try:
         style_map = read_style_map(args.template)
+        right_tab = read_right_tab_stop(args.template)
     except ValueError as e:
         sys.exit(f"Error: {e}")
     para_styles = read_paragraph_style_ids(args.template)
@@ -378,6 +501,8 @@ def main():
     raw = args.content.read_text()
     check_required_styles(raw, style_map)
     raw = inject_title_styles(raw, para_styles)
+    if right_tab:
+        raw = inject_right_tab_markers(raw)
     modified = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(raw)))
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as tmp:
@@ -403,6 +528,8 @@ def main():
 
     strip_bookmarks(args.output)
     sync_headers(args.output, args.template)
+    if right_tab:
+        apply_right_tab_stops(args.output, right_tab)
     apply_run_styles(args.output, style_map)
     print(f"Generated: {args.output}")
 

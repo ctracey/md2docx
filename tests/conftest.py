@@ -58,3 +58,13 @@ def title_subtitle_md():
 @pytest.fixture
 def code_blocks_md():
     return FIXTURES / "code_blocks.md"
+
+
+@pytest.fixture
+def right_tab_md():
+    return FIXTURES / "right_tab.md"
+
+
+@pytest.fixture
+def mixed_content_md():
+    return FIXTURES / "mixed_content.md"

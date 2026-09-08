@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles
+from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER
 from style_map import RunStyle
 
 SCRIPT = Path(__file__).parent.parent / "generate.py"
@@ -158,6 +158,70 @@ def test_inject_two_leading_blank_lines_produce_two_empty_paragraphs():
     result = inject_blank_paragraphs("\n\nPara one.")
     assert result.startswith("\\ ")
     assert result.count("\\ ") == 2
+
+
+# ---------------------------------------------------------------------------
+# inject_right_tab_markers unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_right_tab_replaces_double_chevron():
+    result = inject_right_tab_markers("left >> right")
+    assert ">>" not in result
+    assert _RT_MARKER in result
+
+
+def test_right_tab_splits_correctly():
+    result = inject_right_tab_markers("left >> right")
+    assert result == f"left {_RT_MARKER}right"
+
+
+def test_right_tab_no_left_text():
+    result = inject_right_tab_markers(">> right only")
+    assert result == f"{_RT_MARKER}right only"
+
+
+def test_right_tab_in_heading():
+    result = inject_right_tab_markers("## Heading >> Meta")
+    assert f"## Heading {_RT_MARKER}Meta" == result
+
+
+def test_right_tab_strips_space_after_chevron():
+    result = inject_right_tab_markers("left >>   right")
+    assert result == f"left {_RT_MARKER}right"
+
+
+def test_right_tab_only_first_occurrence():
+    result = inject_right_tab_markers("a >> b >> c")
+    assert result.count(_RT_MARKER) == 1
+
+
+def test_right_tab_unchanged_when_no_chevron():
+    result = inject_right_tab_markers("normal line")
+    assert result == "normal line"
+
+
+def test_right_tab_applied_in_output(right_tab_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(right_tab_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    # Verify tab elements exist in the output
+    tabs = root.findall(f'.//{{{W}}}tab')
+    assert tabs, "No <w:tab/> elements found — right tab stops not applied"
+
+
+def test_right_tab_stop_in_ppr(right_tab_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(right_tab_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    # At least one paragraph should have a right tab stop in its pPr
+    right_tabs = [
+        t for t in root.findall(f'.//{{{W}}}pPr/{{{W}}}tabs/{{{W}}}tab')
+        if t.get(f'{{{W}}}val') == 'right'
+    ]
+    assert right_tabs, "No right tab stop found in any paragraph pPr"
 
 
 # ---------------------------------------------------------------------------

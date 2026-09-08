@@ -267,6 +267,105 @@ def test_apply_adds_font_to_code_block_runs(code_blocks_md, template, tmp_path):
             assert fonts.get(f'{{{W}}}ascii') == "CodeFont"
 
 
+def test_bullet_style_applied_after_right_tab_processing(template, tmp_path):
+    """apply_run_styles must still style bullets after apply_right_tab_stops has actually modified the document.
+
+    The key: preprocess >> to the sentinel BEFORE pandoc so apply_right_tab_stops
+    really does re-serialise the XML, which is what happens in the real pipeline.
+    """
+    import shutil, subprocess, sys
+    from pathlib import Path as P
+    from generate import (apply_right_tab_stops, inject_right_tab_markers,
+                          mark_soft_newlines, inject_blank_paragraphs,
+                          restore_soft_newlines, _RT_MARKER)
+    from style_map import read_right_tab_stop
+
+    right_tab = read_right_tab_stop(template)
+    assert right_tab is not None, "Template must define RightAlignedTabStop for this test"
+
+    # Build preprocessed markdown — >> becomes sentinel before pandoc sees it
+    raw = "Normal text >> right side\n\n- bullet one\n- bullet two\n\n"
+    preprocessed = restore_soft_newlines(
+        inject_blank_paragraphs(mark_soft_newlines(inject_right_tab_markers(raw)))
+    )
+    assert _RT_MARKER in preprocessed, "Sentinel must survive preprocessing"
+
+    md = tmp_path / "content.md"
+    md.write_text(preprocessed)
+    out = tmp_path / "out.docx"
+
+    # Run pandoc directly on the preprocessed markdown
+    subprocess.run(
+        [shutil.which("pandoc"), str(md), "--reference-doc", str(template), "-o", str(out)],
+        check=True,
+    )
+
+    # Now apply_right_tab_stops will actually find the sentinel and re-serialise with ET
+    apply_right_tab_stops(out, right_tab)
+
+    # Then apply_run_styles must work correctly on the ET-serialised document
+    style_map = {"Bullet point text": RunStyle(font="BulletFont")}
+    apply_run_styles(out, style_map)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+    bullet_paras = [
+        p for p in root.findall(f'.//{{{W}}}p')
+        if p.find(f'.//{{{W}}}numPr') is not None
+    ]
+    assert bullet_paras, "No bullet paragraphs found"
+    for p in bullet_paras:
+        for r in p.findall(f'{{{W}}}r'):
+            fonts = r.find(f'{{{W}}}rPr/{{{W}}}rFonts')
+            assert fonts is not None, "rFonts not added to bullet run after right-tab processing"
+            assert fonts.get(f'{{{W}}}ascii') == "BulletFont"
+
+
+def test_bullet_rpr_is_first_child_of_run(simple_md, template, tmp_path):
+    """w:rPr must be the FIRST child of w:r — Word ignores it otherwise."""
+    out = tmp_path / "out.docx"
+    _pandoc_only(simple_md, template, out)
+
+    style_map = {"Bullet point text": RunStyle(font="BulletFont")}
+    apply_run_styles(out, style_map)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+
+    for p in root.findall(f'.//{{{W}}}p'):
+        if p.find(f'.//{{{W}}}numPr') is None:
+            continue
+        for r in p.findall(f'{{{W}}}r'):
+            children = list(r)
+            tags = [c.tag.split('}')[-1] for c in children]
+            if 'rPr' in tags and 't' in tags:
+                assert tags.index('rPr') < tags.index('t'), \
+                    f"rPr must precede t in bullet run, got order: {tags}"
+
+
+def test_code_rpr_is_first_child_of_run(code_blocks_md, template, tmp_path):
+    """w:rPr must be the FIRST child of w:r for code runs too."""
+    out = tmp_path / "out.docx"
+    _pandoc_only(code_blocks_md, template, out)
+
+    style_map = {"Code block text": RunStyle(font="CodeFont")}
+    apply_run_styles(out, style_map)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        root = ET.parse(zf.open('word/document.xml')).getroot()
+
+    for p in root.findall(f'.//{{{W}}}p'):
+        ppr = p.find(f'.//{{{W}}}pStyle')
+        if ppr is None or ppr.get(f'{{{W}}}val') != 'SourceCode':
+            continue
+        for r in p.findall(f'{{{W}}}r'):
+            children = list(r)
+            tags = [c.tag.split('}')[-1] for c in children]
+            if 'rPr' in tags and 't' in tags:
+                assert tags.index('rPr') < tags.index('t'), \
+                    f"rPr must precede t in code run, got order: {tags}"
+
+
 def test_apply_adds_font_to_bullet_runs(simple_md, template, tmp_path):
     out = tmp_path / "out.docx"
     _pandoc_only(simple_md, template, out)

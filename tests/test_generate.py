@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers
+from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles
+from style_map import RunStyle
 
 SCRIPT = Path(__file__).parent.parent / "generate.py"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -157,6 +158,49 @@ def test_inject_two_leading_blank_lines_produce_two_empty_paragraphs():
     result = inject_blank_paragraphs("\n\nPara one.")
     assert result.startswith("\\ ")
     assert result.count("\\ ") == 2
+
+
+# ---------------------------------------------------------------------------
+# check_required_styles unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_no_error_when_required_labels_present():
+    style_map = {"Bold text": RunStyle(bold=True), "Italic text": RunStyle(italic=True)}
+    check_required_styles("**bold** and *italic*", style_map)  # must not raise/exit
+
+
+def test_no_error_for_plain_content_with_no_labels():
+    check_required_styles("Just plain text with no bold or italic.", {})
+
+
+def test_error_when_bold_used_but_label_missing(tmp_path):
+    md = tmp_path / "content.md"
+    md.write_text("**bold text** here")
+    result = run([str(md), "nonexistent.docx", str(tmp_path / "out.docx")])
+    # Fails on missing template before reaching style check — use direct call instead
+    with pytest.raises(SystemExit):
+        check_required_styles("**bold text** here", {})
+
+
+def test_error_message_names_missing_label():
+    import io as _io
+    from contextlib import redirect_stderr
+    try:
+        check_required_styles("**bold**", {})
+    except SystemExit as e:
+        assert "Bold text" in str(e)
+        assert "README" in str(e)
+
+
+def test_error_when_italic_used_but_label_missing():
+    with pytest.raises(SystemExit):
+        check_required_styles("*italic text* here", {})
+
+
+def test_no_error_when_bold_absent_from_content():
+    # template has no Bold text label — fine because content has no bold
+    check_required_styles("Plain paragraph only.", {})
 
 
 # ---------------------------------------------------------------------------

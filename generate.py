@@ -257,6 +257,34 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
     docx_path.write_bytes(buf.getvalue())
 
 
+_EXTENSION_CONSTRUCTS = [
+    (r'\*\*\S', "Bold text", "**bold**"),
+    (r'(?<!\*)\*(?!\*)\S', "Italic text", "*italic*"),
+]
+
+
+def check_required_styles(content: str, style_map: dict[str, RunStyle]) -> None:
+    """Exit with a clear error if the content uses constructs whose style labels are absent.
+
+    See README — Style mapping — Extension mappings.
+    """
+    missing = [
+        (display, label)
+        for pattern, label, display in _EXTENSION_CONSTRUCTS
+        if re.search(pattern, content) and label not in style_map
+    ]
+    if not missing:
+        return
+    details = "\n".join(
+        f'  {display}  →  add a paragraph labelled "{label}" to the style template'
+        for display, label in missing
+    )
+    sys.exit(
+        f"Error: style template is missing required labels:\n{details}\n"
+        "See README — Style mapping — Extension mappings."
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate a styled DOCX from Markdown and a DOCX template.",
@@ -280,6 +308,7 @@ def main():
         sys.exit(f"Error: {e}")
 
     raw = args.content.read_text()
+    check_required_styles(raw, style_map)
     modified = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(raw)))
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as tmp:

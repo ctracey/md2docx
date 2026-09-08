@@ -257,37 +257,33 @@ def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
     docx_path.write_bytes(buf.getvalue())
 
 
-_SPECIAL_LINE_RE = re.compile(r'^(#{1,6}\s|[-*+]\s|>\s|```|\s*$)')
-
-
 def inject_title_styles(text: str, style_map: dict[str, RunStyle]) -> str:
-    """Wrap the first one or two plain lines in pandoc custom-style fenced divs.
+    """Replace % and %% prefix lines with pandoc custom-style fenced divs.
 
-    Convention: the first non-special line of the document becomes the Title
-    paragraph; the immediately following non-special line becomes the Subtitle.
-    Lines starting with #, -, >, ``` or blank are considered 'special' and
-    break the title/subtitle detection.
+    Convention:
+      %<text>   → Title paragraph  (any line starting with a single %)
+      %%<text>  → Subtitle paragraph (any line starting with %%)
+    Each can appear anywhere in the document, independently of the other.
+    %% is tested first so it is not misread as a single-% line.
     """
     title_entry = style_map.get("Title text")
     subtitle_entry = style_map.get("Subtitle text")
-    if not title_entry:
+    if not title_entry and not subtitle_entry:
         return text
 
-    title_style = title_entry.para_style or "Title"
+    title_style = title_entry.para_style if title_entry else "Title"
     subtitle_style = subtitle_entry.para_style if subtitle_entry else "Subtitle"
 
-    lines = text.split('\n')
     out = []
-    i = 0
-
-    if i < len(lines) and not _SPECIAL_LINE_RE.match(lines[i]):
-        out += [f'::: {{custom-style="{title_style}"}}', lines[i], ':::']
-        i += 1
-        if subtitle_entry and i < len(lines) and not _SPECIAL_LINE_RE.match(lines[i]):
-            out += [f'::: {{custom-style="{subtitle_style}"}}', lines[i], ':::']
-            i += 1
-
-    out += lines[i:]
+    for line in text.split('\n'):
+        if subtitle_entry and line.startswith('%%'):
+            content = line[2:].lstrip()
+            out += [f'::: {{custom-style="{subtitle_style}"}}', content, ':::']
+        elif title_entry and line.startswith('%'):
+            content = line[1:].lstrip()
+            out += [f'::: {{custom-style="{title_style}"}}', content, ':::']
+        else:
+            out.append(line)
     return '\n'.join(out)
 
 

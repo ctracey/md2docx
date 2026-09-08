@@ -170,39 +170,51 @@ _TITLE_MAP = {
 }
 
 
-def test_inject_title_wraps_first_line():
-    result = inject_title_styles("My Title\nMy Subtitle\n\n# Heading\n", _TITLE_MAP)
+def test_inject_title_wraps_percent_line():
+    result = inject_title_styles("%My Title\n", _TITLE_MAP)
     assert '::: {custom-style="Title"}' in result
     assert "My Title" in result
 
 
-def test_inject_subtitle_wraps_second_line():
-    result = inject_title_styles("My Title\nMy Subtitle\n\n# Heading\n", _TITLE_MAP)
+def test_inject_subtitle_wraps_double_percent_line():
+    result = inject_title_styles("%%My Subtitle\n", _TITLE_MAP)
     assert '::: {custom-style="Subtitle"}' in result
     assert "My Subtitle" in result
 
 
-def test_inject_title_only_when_no_subtitle_label():
-    style_map = {"Title text": RunStyle(para_style="Title")}
-    result = inject_title_styles("My Title\nMy Subtitle\n", style_map)
+def test_inject_title_and_subtitle_independently():
+    result = inject_title_styles("%Title\n\n# Heading\n\n%%Subtitle\n", _TITLE_MAP)
     assert '::: {custom-style="Title"}' in result
-    assert '::: {custom-style="Subtitle"}' not in result
+    assert '::: {custom-style="Subtitle"}' in result
 
 
-def test_inject_title_skips_when_first_line_is_heading():
-    result = inject_title_styles("# Heading\nBody\n", _TITLE_MAP)
+def test_inject_double_percent_not_matched_as_title():
+    result = inject_title_styles("%%Subtitle\n", _TITLE_MAP)
+    assert result.count(":::") == 2  # one div only
     assert '::: {custom-style="Title"}' not in result
 
 
-def test_inject_title_skips_when_no_title_label():
-    result = inject_title_styles("My Title\nMy Subtitle\n", {})
+def test_inject_title_strips_leading_space_after_sigil():
+    result = inject_title_styles("% My Title\n", _TITLE_MAP)
+    assert "My Title" in result
+    assert " My Title" not in result
+
+
+def test_inject_title_skips_when_no_labels():
+    result = inject_title_styles("%Title\n%%Subtitle\n", {})
     assert ":::" not in result
 
 
-def test_inject_title_stops_subtitle_at_blank_line():
-    result = inject_title_styles("My Title\n\nNot Subtitle\n", _TITLE_MAP)
+def test_inject_title_only_when_no_subtitle_label():
+    style_map = {"Title text": RunStyle(para_style="Title")}
+    result = inject_title_styles("%Title\n%%Subtitle\n", style_map)
     assert '::: {custom-style="Title"}' in result
     assert '::: {custom-style="Subtitle"}' not in result
+
+
+def test_non_percent_lines_are_unchanged():
+    result = inject_title_styles("# Heading\nBody\n", _TITLE_MAP)
+    assert ":::" not in result
 
 
 def test_title_subtitle_paragraph_styles_in_output(title_subtitle_md, template, tmp_path):

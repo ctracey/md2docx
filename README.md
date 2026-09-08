@@ -44,13 +44,22 @@ Run-level styles (font, size, colour, etc.) are discovered by scanning the style
 
 | Markdown | Template label | Notes |
 |---|---|---|
-| First line of document | `Title text` | Must precede any heading or blank line |
-| Second line of document | `Subtitle text` | Must immediately follow the title line |
+| `%Title text` | `Title text` | |
+| `%%Subtitle text` | `Subtitle text` | |
 | Plain text | `Normal text` | |
 | `**bold**` | `Bold text` | |
 | `*italic*` | `Italic text` | |
 
-**Title and Subtitle convention:** if the style template defines `Title text` and/or `Subtitle text` labels, the first plain line of the content file is styled as Title and the immediately following plain line as Subtitle. A blank line or heading before either line disables the detection for that position.
+**Title and Subtitle convention:** prefix a line with `%` for Title or `%%` for Subtitle. Each can appear anywhere in the document independently. `%%` is always tested before `%` so double-percent lines are never misread as a title.
+
+```
+%My Document Title
+%%My Document Subtitle
+
+# Section One
+
+%%An inline subtitle anywhere
+```
 
 **How to define a style:** add a paragraph to the style template with the exact label text, styled as you want that construct to appear. Each label must appear exactly once — duplicate labels are an error.
 

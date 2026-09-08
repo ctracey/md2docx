@@ -1,5 +1,5 @@
-My Document Title
-My Document Subtitle
+%My Document Title
+%%My Document Subtitle
 
 # First Heading
 

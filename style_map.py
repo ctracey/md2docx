@@ -167,6 +167,41 @@ def read_right_tab_stop(template_path: Path) -> dict | None:
     return None
 
 
+def validate_template(template_path: Path) -> list[str]:
+    """Check the style template for completeness.
+
+    Returns a list of human-readable issue strings.
+    An empty list means the template is complete.
+    """
+    issues: list[str] = []
+
+    # Body label paragraphs
+    try:
+        style_map = read_style_map(template_path)
+    except ValueError as e:
+        issues.append(str(e))
+        style_map = {}
+
+    for label in sorted(KNOWN_LABELS):
+        if label not in style_map:
+            issues.append(f'Body label paragraph not found: "{label}"')
+
+    # RightAlignedTabStop
+    try:
+        if read_right_tab_stop(template_path) is None:
+            issues.append('Body label paragraph not found: "RightAlignedTabStop"')
+    except ValueError as e:
+        issues.append(str(e))
+
+    # Title and Subtitle paragraph styles
+    para_styles = read_paragraph_style_ids(template_path)
+    for style_id in ('Title', 'Subtitle'):
+        if style_id not in para_styles:
+            issues.append(f'Paragraph style not defined in styles.xml: "{style_id}"')
+
+    return issues
+
+
 def read_paragraph_style_ids(template_path: Path) -> set[str]:
     """Return the set of paragraph style IDs defined in the template's styles.xml."""
     with zipfile.ZipFile(str(template_path)) as zf:

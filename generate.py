@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
-from style_map import RunStyle, read_style_map, read_paragraph_style_ids, read_right_tab_stop
+from style_map import RunStyle, read_style_map, read_paragraph_style_ids, read_right_tab_stop, validate_template
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -491,11 +491,16 @@ def main():
     if shutil.which("pandoc") is None:
         sys.exit("Error: pandoc not found. Install with: brew install pandoc")
 
-    try:
-        style_map = read_style_map(args.template)
-        right_tab = read_right_tab_stop(args.template)
-    except ValueError as e:
-        sys.exit(f"Error: {e}")
+    issues = validate_template(args.template)
+    if issues:
+        details = "\n".join(f"  • {issue}" for issue in issues)
+        sys.exit(
+            f"Error: style template is incomplete:\n{details}\n"
+            "See README — Style mapping for template requirements."
+        )
+
+    style_map = read_style_map(args.template)
+    right_tab = read_right_tab_stop(args.template)
     para_styles = read_paragraph_style_ids(args.template)
 
     raw = args.content.read_text()

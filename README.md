@@ -15,7 +15,7 @@ No Python packages are needed at runtime.
 ## Usage
 
 ```
-python generate.py <content.md> <template.docx> <output.docx>
+python generate.py <content.md> <template.docx> <output.docx> [--partial NAME=partial.docx ...]
 ```
 
 **Example:**
@@ -24,22 +24,62 @@ python generate.py <content.md> <template.docx> <output.docx>
 python generate.py ref/template-content.md ref/template-style.docx output.docx
 ```
 
+## Partials
+
+Partials let you splice pre-built DOCX sections into a generated document. Place a `{{NAME}}` placeholder on its own line in the markdown, then pass the matching DOCX file with `--partial`:
+
+```
+python generate.py content.md template.docx output.docx \
+  --partial INTRO=intro.docx \
+  --partial TABLE=data-table.docx
+```
+
+The `--partial` flag can be repeated for as many named placeholders as needed.
+
+**In the markdown:**
+
+```markdown
+## Pre-generated section
+
+{{INTRO}}
+
+## Another section
+
+{{TABLE}}
+```
+
+Each placeholder line is replaced with the full body content of the named partial DOCX. The partial renders with its own font properties — font face, size, colour — exactly as it looks when opened in Word, independent of the output template's style definitions. The template does not override partial styling.
+
+**Partial style template:** partials may use a different style template from the main document. A separate style DOCX for partials is included in `sample/sample-style-partials.docx`.
+
 ## Sample
 
-The `sample/` folder contains a working example that exercises every supported feature:
+The `sample/` folder contains working examples that exercise every supported feature:
 
 | File | Purpose |
 |---|---|
 | `sample/sample-content.md` | Content file demonstrating all syntax conventions |
 | `sample/sample-style.docx` | Matching style template with all required labels defined |
+| `sample/sample-content2.md` | Content file demonstrating partial interpolation |
+| `sample/sample-style-partials.docx` | Style template for the partials example |
+| `sample/sample-partial1.docx` | Partial DOCX for `{{SAMPLE_PARTIAL-1}}` |
+| `sample/sample-partial2.docx` | Partial DOCX for `{{SAMPLE_PARTIAL-2}}` |
 
-Run it:
+Run the standard example:
 
 ```
 python generate.py sample/sample-content.md sample/sample-style.docx sample/output.docx
 ```
 
-The content file covers: title (`%`), subtitle (`%%`), all six heading levels, bold, italic, inline code, fenced code blocks, bullets, right-aligned tab stops (`>>`), horizontal rule (`---`), and page break (`===`).
+Run the partials example:
+
+```
+python generate.py sample/sample-content2.md sample/sample-style-partials.docx sample/output2.docx \
+  --partial "SAMPLE_PARTIAL-1=sample/sample-partial1.docx" \
+  --partial "SAMPLE_PARTIAL-2=sample/sample-partial2.docx"
+```
+
+The standard content file covers: title (`%`), subtitle (`%%`), all six heading levels, bold, italic, inline code, fenced code blocks, bullets, right-aligned tab stops (`>>`), horizontal rule (`---`), and page break (`===`).
 
 ## Style mapping
 

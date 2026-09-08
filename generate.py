@@ -76,6 +76,419 @@ _HEADER_REL_RE = re.compile(rb'<Relationship\b[^>]*/relationships/header[^>]*/>\
 _RELS_KEY = 'word/_rels/document.xml.rels'
 _is_header_name = re.compile(r'word/(_rels/)?header\d+').match
 
+_CONTENT_TYPES_KEY = '[Content_Types].xml'
+
+_SKIP_REL_TARGETS = frozenset({
+    'styles.xml', 'settings.xml', 'fontTable.xml', 'webSettings.xml',
+    'endnotes.xml', 'footnotes.xml', 'numbering.xml', 'document.xml',
+    'comments.xml', 'theme/theme1.xml',
+})
+
+_MEDIA_CONTENT_TYPES = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.tiff': 'image/tiff', '.tif': 'image/tiff',
+    '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml',
+    '.emf': 'image/x-emf',
+    '.wmf': 'image/x-wmf',
+}
+
+
+def _resolve_style_rprs(styles_bytes: bytes, theme_bytes: bytes = b'') -> dict[str, ET.Element]:
+    """Return {styleId: effective w:rPr element} for all paragraph styles.
+
+    Follows basedOn chains starting from docDefaults so each entry holds the
+    fully inherited run properties. Includes '__default__' for styles not
+    explicitly defined in the document (uses docDefaults + theme body font).
+    """
+    WW = f'{{{W}}}'
+    A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    styles_root = ET.fromstring(styles_bytes)
+
+    # Base: document-level run defaults
+    base_props: dict[str, ET.Element] = {}
+    doc_def_rpr = styles_root.find(f'{WW}docDefaults/{WW}rPrDefault/{WW}rPr')
+    if doc_def_rpr is not None:
+        for prop in doc_def_rpr:
+            base_props[prop.tag] = prop
+
+    # Add the partial's theme body font so undefined styles use it explicitly
+    if theme_bytes and f'{WW}rFonts' not in base_props:
+        try:
+            theme_root = ET.fromstring(theme_bytes)
+            minor = theme_root.find(f'.//{{{A}}}fontScheme/{{{A}}}minorFont/{{{A}}}latin')
+            if minor is not None and minor.get('typeface'):
+                fonts_el = ET.Element(f'{WW}rFonts')
+                for attr in ('ascii', 'hAnsi', 'cs', 'eastAsia'):
+                    fonts_el.set(f'{WW}{attr}', minor.get('typeface'))
+                base_props[f'{WW}rFonts'] = fonts_el
+        except Exception:
+            pass
+
+    styles: dict[str, ET.Element] = {
+        s.get(f'{WW}styleId'): s
+        for s in styles_root.findall(f'{WW}style')
+        if s.get(f'{WW}type') == 'paragraph' and s.get(f'{WW}styleId')
+    }
+
+    def _effective(style_id: str, visited: set) -> dict[str, ET.Element]:
+        if style_id in visited or style_id not in styles:
+            return dict(base_props)
+        visited.add(style_id)
+        style_el = styles[style_id]
+        based_on = style_el.find(f'{WW}basedOn')
+        parent_id = based_on.get(f'{WW}val') if based_on is not None else None
+        props: dict[str, ET.Element] = _effective(parent_id, visited) if parent_id else dict(base_props)
+        rpr = style_el.find(f'{WW}rPr')
+        if rpr is not None:
+            for prop in rpr:
+                props[prop.tag] = prop
+        return props
+
+    result: dict[str, ET.Element] = {}
+    for sid in styles:
+        props = _effective(sid, set())
+        if props:
+            rpr_el = ET.Element(f'{WW}rPr')
+            for prop in props.values():
+                rpr_el.append(ET.fromstring(ET.tostring(prop)))
+            result[sid] = rpr_el
+
+    # Fallback for styles not in this document (e.g. built-in Word styles)
+    if base_props:
+        default_el = ET.Element(f'{WW}rPr')
+        for prop in base_props.values():
+            default_el.append(ET.fromstring(ET.tostring(prop)))
+        result['__default__'] = default_el
+
+    return result
+
+
+def _inline_partial_styles(paras: list, styles_bytes: bytes, theme_bytes: bytes = b'') -> None:
+    """Strip all paragraph style names and inline run properties from the partial.
+
+    Every paragraph's pStyle is removed so the content is self-contained and
+    immune to the output template's style definitions. For styles explicitly
+    defined in the partial, the full effective rPr (following basedOn chains) is
+    inlined. For styles not defined in the partial (built-in Word styles), the
+    partial's document defaults + theme body font are inlined as a baseline.
+    """
+    WW = f'{{{W}}}'
+    style_rprs = _resolve_style_rprs(styles_bytes, theme_bytes)
+    default_rpr = style_rprs.get('__default__')
+
+    for p in paras:
+        ppr = p.find(f'{WW}pPr')
+        if ppr is None:
+            continue
+        style_el = ppr.find(f'{WW}pStyle')
+        if style_el is None:
+            continue
+
+        effective_rpr = style_rprs.get(style_el.get(f'{WW}val', ''), default_rpr)
+        ppr.remove(style_el)
+
+        if effective_rpr is None:
+            continue
+
+        for r in p.findall(f'{WW}r'):
+            existing = r.find(f'{WW}rPr')
+            if existing is None:
+                r.insert(0, ET.fromstring(ET.tostring(effective_rpr)))
+            else:
+                for prop in effective_rpr:
+                    if existing.find(prop.tag) is None:
+                        existing.append(ET.fromstring(ET.tostring(prop)))
+
+
+def _parse_rels(rels_bytes: bytes) -> dict[str, dict]:
+    """Return {rId: {type, target}} for all relationships."""
+    result = {}
+    for m in re.finditer(rb'<Relationship\b([^>]*)/?>', rels_bytes):
+        attrs = m.group(1)
+        rid = re.search(rb'\bId="([^"]+)"', attrs)
+        rtype = re.search(rb'\bType="([^"]+)"', attrs)
+        target = re.search(rb'\bTarget="([^"]+)"', attrs)
+        if rid and rtype and target:
+            result[rid.group(1).decode()] = {
+                'type': rtype.group(1).decode(),
+                'target': target.group(1).decode(),
+            }
+    return result
+
+
+def _ensure_content_type(ct_bytes: bytes, ext: str) -> bytes:
+    """Add a Default content type entry for the extension if not already declared."""
+    ct = _MEDIA_CONTENT_TYPES.get(ext)
+    if ct is None:
+        return ct_bytes
+    ext_bare = ext.lstrip('.').lower()
+    if ext_bare.encode() in ct_bytes:
+        return ct_bytes
+    entry = f'<Default Extension="{ext_bare}" ContentType="{ct}"/>'.encode()
+    return ct_bytes.replace(b'</Types>', entry + b'</Types>')
+
+
+def _collect_num_ids(paras: list) -> set[str]:
+    """Return all w:numId val= values referenced in the given paragraph elements."""
+    ids = set()
+    for p in paras:
+        for el in p.findall(f'.//{{{W}}}numId'):
+            val = el.get(f'{{{W}}}val')
+            if val and val != '0':
+                ids.add(val)
+    return ids
+
+
+def _merge_numbering(out_files: dict, p_files: dict, p_num_ids: set) -> dict[str, str]:
+    """Merge partial numbering definitions into the output's numbering.xml.
+
+    Returns {old_numId: new_numId} for any IDs that were remapped to avoid conflicts.
+    """
+    if not p_num_ids or 'word/numbering.xml' not in p_files:
+        return {}
+
+    WW = f'{{{W}}}'
+    for m in re.finditer(rb'xmlns:(\w+)="([^"]+)"', p_files['word/numbering.xml']):
+        ET.register_namespace(m.group(1).decode(), m.group(2).decode())
+
+    p_num_root = ET.fromstring(p_files['word/numbering.xml'])
+    p_nums = {n.get(f'{WW}numId'): n for n in p_num_root.findall(f'{WW}num')}
+    p_abs_nums = {a.get(f'{WW}abstractNumId'): a for a in p_num_root.findall(f'{WW}abstractNum')}
+
+    needed_nums = {nid: p_nums[nid] for nid in p_num_ids if nid in p_nums}
+    needed_abs_ids: set[str] = set()
+    for num_el in needed_nums.values():
+        abs_ref = num_el.find(f'{WW}abstractNumId')
+        if abs_ref is not None:
+            needed_abs_ids.add(abs_ref.get(f'{WW}val', ''))
+    needed_abs_nums = {aid: p_abs_nums[aid] for aid in needed_abs_ids if aid in p_abs_nums}
+
+    if not needed_nums:
+        return {}
+
+    out_num_bytes = out_files.get('word/numbering.xml')
+    if out_num_bytes:
+        out_num_root = ET.fromstring(out_num_bytes)
+    else:
+        out_num_root = ET.fromstring(
+            f'<w:numbering xmlns:w="{W}"/>'
+        )
+
+    out_num_ids = {n.get(f'{WW}numId') for n in out_num_root.findall(f'{WW}num')}
+    out_abs_ids = {a.get(f'{WW}abstractNumId') for a in out_num_root.findall(f'{WW}abstractNum')}
+    max_abs = max((int(x) for x in out_abs_ids if x and x.isdigit()), default=0)
+    max_num = max((int(x) for x in out_num_ids if x and x.isdigit()), default=0)
+
+    abs_id_map: dict[str, str] = {}
+    for old_aid in needed_abs_ids:
+        if old_aid in out_abs_ids:
+            max_abs += 1
+            abs_id_map[old_aid] = str(max_abs)
+        else:
+            abs_id_map[old_aid] = old_aid
+
+    num_id_map: dict[str, str] = {}
+    for old_nid in needed_nums:
+        if old_nid in out_num_ids:
+            max_num += 1
+            num_id_map[old_nid] = str(max_num)
+        else:
+            num_id_map[old_nid] = old_nid
+
+    # abstractNum elements must precede num elements — insert before first existing num
+    first_num_idx = next(
+        (i for i, c in enumerate(out_num_root) if c.tag == f'{WW}num'),
+        None,
+    )
+    for old_aid, abs_el in needed_abs_nums.items():
+        copy = ET.fromstring(ET.tostring(abs_el))
+        copy.set(f'{WW}abstractNumId', abs_id_map[old_aid])
+        if first_num_idx is not None:
+            out_num_root.insert(first_num_idx, copy)
+            first_num_idx += 1
+        else:
+            out_num_root.append(copy)
+
+    for old_nid, num_el in needed_nums.items():
+        copy = ET.fromstring(ET.tostring(num_el))
+        copy.set(f'{WW}numId', num_id_map[old_nid])
+        abs_ref = copy.find(f'{WW}abstractNumId')
+        if abs_ref is not None:
+            abs_ref.set(f'{WW}val', abs_id_map.get(abs_ref.get(f'{WW}val', ''), abs_ref.get(f'{WW}val', '')))
+        out_num_root.append(copy)
+
+    new_xml = ET.tostring(out_num_root, encoding='unicode')
+    out_files['word/numbering.xml'] = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        + new_xml.encode('utf-8')
+    )
+
+    if 'word/numbering.xml' not in out_files.get('_names_', []):
+        pass  # already in out_files dict
+
+    # Ensure numbering rel exists when we created numbering.xml from scratch
+    if out_num_bytes is None and _RELS_KEY in out_files:
+        if b'relationships/numbering' not in out_files[_RELS_KEY]:
+            new_rid = f'rId{_max_rid(out_files[_RELS_KEY]) + 1}'
+            entry = (
+                f'<Relationship Id="{new_rid}" '
+                f'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" '
+                f'Target="numbering.xml"/>'
+            ).encode()
+            out_files[_RELS_KEY] = out_files[_RELS_KEY].replace(b'</Relationships>', entry + b'</Relationships>')
+
+    return num_id_map
+
+
+def _remap_rids(root: ET.Element, rid_map: dict[str, str]) -> None:
+    """Replace all rId attribute values in the element tree according to rid_map."""
+    for el in root.iter():
+        for attr, val in list(el.attrib.items()):
+            if val in rid_map:
+                el.set(attr, rid_map[val])
+
+
+def _remap_numids(root: ET.Element, num_id_map: dict[str, str]) -> None:
+    """Replace w:numId w:val values in the element tree according to num_id_map."""
+    for el in root.findall(f'.//{{{W}}}numId'):
+        val = el.get(f'{{{W}}}val')
+        if val in num_id_map:
+            el.set(f'{{{W}}}val', num_id_map[val])
+
+
+def splice_partials(docx_path: Path, partials: dict[str, Path]) -> None:
+    """Replace {{NAME}} placeholder paragraphs with content from named partial DOCX files."""
+    if not partials:
+        return
+
+    with zipfile.ZipFile(docx_path, 'r') as zin:
+        out_names = list(zin.namelist())
+        out_files = {n: zin.read(n) for n in out_names}
+
+    doc_bytes = out_files['word/document.xml']
+    for m in re.finditer(rb'xmlns:(\w+)="([^"]+)"', doc_bytes):
+        ET.register_namespace(m.group(1).decode(), m.group(2).decode())
+
+    root = ET.fromstring(doc_bytes)
+    body = root.find(f'{{{W}}}body')
+    modified = False
+
+    # Warn about any {{...}} placeholders with no matching partial
+    all_placeholders = {
+        ''.join(t.text or '' for t in p.findall(f'.//{{{W}}}t')).strip()
+        for p in body.findall(f'{{{W}}}p')
+    }
+    unclaimed = {
+        ph[2:-2] for ph in all_placeholders
+        if ph.startswith('{{') and ph.endswith('}}') and ph[2:-2] not in partials
+    }
+    for name in sorted(unclaimed):
+        print(f"Warning: placeholder {{{{{name}}}}} has no matching --partial", file=sys.stderr)
+
+    for name, partial_path in partials.items():
+        placeholder = '{{' + name + '}}'
+
+        with zipfile.ZipFile(partial_path, 'r') as pzip:
+            p_files = {n: pzip.read(n) for n in pzip.namelist()}
+
+        p_doc_bytes = p_files.get('word/document.xml', b'')
+        for m in re.finditer(rb'xmlns:(\w+)="([^"]+)"', p_doc_bytes):
+            ET.register_namespace(m.group(1).decode(), m.group(2).decode())
+
+        # Remap external resource relationships (images, hyperlinks — not core XML parts)
+        p_rels = _parse_rels(p_files.get(_RELS_KEY, b''))
+        rid_map: dict[str, str] = {}
+
+        for old_rid, rel in p_rels.items():
+            target = rel['target']
+            if target in _SKIP_REL_TARGETS:
+                continue
+            is_external = target.startswith(('http://', 'https://', 'mailto:'))
+            new_rid = f'rId{_max_rid(out_files.get(_RELS_KEY, b"")) + len(rid_map) + 1}'
+            rid_map[old_rid] = new_rid
+
+            if not is_external:
+                src_key = 'word/' + target
+                if src_key in p_files:
+                    dst_key = src_key
+                    if dst_key in out_files:
+                        ext = Path(src_key).suffix
+                        stem = Path(src_key).stem
+                        parent = str(Path(src_key).parent)
+                        dst_key = f'{parent}/{stem}_{new_rid}{ext}'
+                        target = str(Path(target).parent / f'{stem}_{new_rid}{ext}')
+                    out_files[dst_key] = p_files[src_key]
+                    if dst_key not in out_names:
+                        out_names.append(dst_key)
+                    ext_lower = Path(dst_key).suffix.lower()
+                    if _CONTENT_TYPES_KEY in out_files:
+                        out_files[_CONTENT_TYPES_KEY] = _ensure_content_type(
+                            out_files[_CONTENT_TYPES_KEY], ext_lower
+                        )
+
+            target_mode = ' TargetMode="External"' if is_external else ''
+            rel_entry = (
+                f'<Relationship Id="{new_rid}" Type="{rel["type"]}" Target="{target}"{target_mode}/>'
+            ).encode()
+            if _RELS_KEY in out_files:
+                out_files[_RELS_KEY] = out_files[_RELS_KEY].replace(
+                    b'</Relationships>', rel_entry + b'</Relationships>'
+                )
+
+        # Parse partial body, collect needed numIds, merge numbering
+        p_root = ET.fromstring(p_doc_bytes)
+        p_body = p_root.find(f'{{{W}}}body')
+        p_paras = [el for el in list(p_body) if el.tag != f'{{{W}}}sectPr']
+
+        p_num_ids = _collect_num_ids(p_paras)
+        num_id_map = _merge_numbering(out_files, p_files, p_num_ids)
+
+        # Apply remapping directly on element tree
+        if rid_map:
+            _remap_rids(p_root, rid_map)
+            p_paras = [el for el in list(p_body) if el.tag != f'{{{W}}}sectPr']
+        if num_id_map:
+            _remap_numids(p_root, num_id_map)
+            p_paras = [el for el in list(p_body) if el.tag != f'{{{W}}}sectPr']
+
+        # Strip paragraph styles and inline run properties so the content renders
+        # correctly regardless of what styles the output template defines.
+        _inline_partial_styles(
+            p_paras,
+            p_files.get('word/styles.xml', b''),
+            p_files.get('word/theme/theme1.xml', b''),
+        )
+
+        # Replace each occurrence of the placeholder paragraph
+        while True:
+            found = False
+            for i, el in enumerate(list(body)):
+                if el.tag != f'{{{W}}}p':
+                    continue
+                text = ''.join(t.text or '' for t in el.findall(f'.//{{{W}}}t')).strip()
+                if text == placeholder:
+                    body.remove(el)
+                    for j, para in enumerate(p_paras):
+                        body.insert(i + j, para)
+                    modified = True
+                    found = True
+                    break
+            if not found:
+                break
+
+    if not modified:
+        return
+
+    new_xml = ET.tostring(root, encoding='unicode')
+    out_files['word/document.xml'] = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        + new_xml.encode('utf-8')
+    )
+    _write_zip(docx_path, out_names, out_files)
+
 
 def _write_zip(path: Path, names: list[str], files: dict[str, bytes]) -> None:
     buf = io.BytesIO()
@@ -500,6 +913,10 @@ def main():
     parser.add_argument("content", type=Path, help="Markdown input file (.md)")
     parser.add_argument("template", type=Path, help="DOCX style template (.docx)")
     parser.add_argument("output", type=Path, help="Output DOCX file (.docx)")
+    parser.add_argument(
+        "--partial", metavar="NAME=FILE.docx", action="append", default=[],
+        help="Splice partial DOCX at {{NAME}} placeholder (repeatable)",
+    )
     args = parser.parse_args()
 
     if not args.content.exists():
@@ -508,6 +925,16 @@ def main():
         sys.exit(f"Error: template file not found: {args.template}")
     if shutil.which("pandoc") is None:
         sys.exit("Error: pandoc not found. Install with: brew install pandoc")
+
+    partials: dict[str, Path] = {}
+    for spec in args.partial:
+        if '=' not in spec:
+            sys.exit(f"Error: --partial must be NAME=FILE.docx, got: {spec!r}")
+        pname, ppath_str = spec.split('=', 1)
+        ppath = Path(ppath_str)
+        if not ppath.exists():
+            sys.exit(f"Error: partial file not found: {ppath}")
+        partials[pname] = ppath
 
     issues = validate_template(args.template)
     if issues:
@@ -556,6 +983,7 @@ def main():
     if right_tab:
         apply_right_tab_stops(args.output, right_tab)
     apply_run_styles(args.output, style_map)
+    splice_partials(args.output, partials)
     print(f"Generated: {args.output}")
 
 

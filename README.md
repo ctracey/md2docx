@@ -24,22 +24,35 @@ python generate.py <content.md> <template.docx> <output.docx>
 python generate.py ref/template-content.md ref/template-style.docx output.docx
 ```
 
-### Markdown features
+## Style mapping
 
-| Markdown | DOCX output |
+Styles are applied through two mechanisms: native mappings and extension mappings.
+
+### Native mappings
+
+These are handled automatically by pandoc using the named paragraph styles defined in the template. No configuration required.
+
+| Markdown | Template style |
 |---|---|
-| `# Heading 1` through `###### Heading 6` | Heading 1–6 styles |
-| `- item` | Real Word bullet (numPr) |
-| Plain paragraph | Body text style |
-| `**bold**` | Bold run |
-| `*italic*` | Italic run |
-| Single newline | New paragraph (no blank line between) |
-| Blank line | Empty paragraph (visible vertical gap) |
+| `# Heading 1` through `###### Heading 6` | Heading 1–6 |
+| `- item` | List style (real Word list items) |
+| Plain paragraph | Body text |
 
-#### Line breaks vs blank lines
+### Extension mappings
 
-This converter treats **every newline as a paragraph break**, not a soft wrap.
-Standard markdown collapses a single newline into a space; this tool does not.
+Run-level styles (font, size, colour, etc.) are discovered by scanning the style template for labelled example paragraphs. Each label is a paragraph whose full text exactly matches one of the names below. The run formatting of that paragraph defines how the corresponding markdown construct is rendered.
+
+| Markdown | Template label |
+|---|---|
+| Plain text | `Normal text` |
+| `**bold**` | `Bold text` |
+| `*italic*` | `Italic text` |
+
+**How to define a style:** add a paragraph to the style template with the exact label text, formatted as you want that construct to appear. Each label must appear exactly once — duplicate labels are an error.
+
+### Line breaks
+
+This converter treats **every newline as a paragraph break**, not a soft wrap. Standard markdown collapses a single newline into a space; this tool does not.
 
 ```
 normal text       ← paragraph 1
@@ -47,16 +60,13 @@ normal text       ← paragraph 1
 *italic text*     ← paragraph 3
 ```
 
-An **explicit blank line** inserts a visible empty paragraph between content:
+An **explicit blank line** inserts a visible empty paragraph:
 
 ```
 paragraph one
 
 paragraph two     ← blank paragraph appears between these two
 ```
-
-Bullets are real Word list items (not dash characters), inheriting the
-template's list styling.
 
 ## Repository structure
 
@@ -87,8 +97,6 @@ Run the suite:
 ```
 pytest tests/ -v
 ```
-
-Run `pytest tests/ -v` — 33 tests, all passing.
 
 > **Note on test inspection:** The template embeds DM Sans fonts whose MIME
 > types pandoc does not register in `[Content_Types].xml`. Tests therefore

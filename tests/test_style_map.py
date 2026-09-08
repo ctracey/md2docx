@@ -78,14 +78,14 @@ def _make_docx(paragraphs_xml: list[str], tmp_path: Path) -> Path:
 
 
 def test_reads_known_label(tmp_path):
-    tmpl = _make_docx([_para_xml("Bold normal text", bold=True)], tmp_path)
+    tmpl = _make_docx([_para_xml("Bold text", bold=True)], tmp_path)
     result = read_style_map(tmpl)
-    assert "Bold normal text" in result
+    assert "Bold text" in result
 
 
 def test_extracts_bold_flag(tmp_path):
-    tmpl = _make_docx([_para_xml("Bold normal text", bold=True)], tmp_path)
-    assert read_style_map(tmpl)["Bold normal text"].bold is True
+    tmpl = _make_docx([_para_xml("Bold text", bold=True)], tmp_path)
+    assert read_style_map(tmpl)["Bold text"].bold is True
 
 
 def test_extracts_italic_flag(tmp_path):
@@ -116,7 +116,7 @@ def test_unknown_label_ignored(tmp_path):
 
 
 def test_absent_label_not_in_result(tmp_path):
-    tmpl = _make_docx([_para_xml("Bold normal text", bold=True)], tmp_path)
+    tmpl = _make_docx([_para_xml("Bold text", bold=True)], tmp_path)
     result = read_style_map(tmpl)
     assert "Italic text" not in result
 
@@ -138,7 +138,7 @@ def test_no_rpr_returns_empty_run_style(tmp_path):
 
 def test_all_known_labels_constant():
     assert "Normal text" in KNOWN_LABELS
-    assert "Bold normal text" in KNOWN_LABELS
+    assert "Bold text" in KNOWN_LABELS
     assert "Italic text" in KNOWN_LABELS
 
 
@@ -194,7 +194,7 @@ def test_apply_adds_font_to_bold_runs(inline_formatting_md, template, tmp_path):
     out = tmp_path / "out.docx"
     _pandoc_only(inline_formatting_md, template, out)
 
-    style_map = {"Bold normal text": RunStyle(font="BoldFont", bold=True)}
+    style_map = {"Bold text": RunStyle(font="BoldFont", bold=True)}
     apply_run_styles(out, style_map)
 
     for r in _bold_runs(out):

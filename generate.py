@@ -204,7 +204,7 @@ def _merge_run_style(rpr: ET.Element, style: RunStyle) -> None:
 def apply_run_styles(docx_path: Path, style_map: dict[str, RunStyle]) -> None:
     """Post-process output DOCX to apply template run styles to bold/italic runs in Normal paragraphs."""
     italic_style = style_map.get("Italic text")
-    bold_style = style_map.get("Bold normal text")
+    bold_style = style_map.get("Bold text")
     if not italic_style and not bold_style:
         return
 

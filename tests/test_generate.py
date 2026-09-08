@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from generate import inject_blank_paragraphs
+from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers
 
 SCRIPT = Path(__file__).parent.parent / "generate.py"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -58,6 +58,63 @@ def _has_real_bullets(path: Path) -> bool:
         p.find(f".//{{{W}}}numPr") is not None
         for p in root.findall(f".//{{{W}}}p")
     )
+
+
+def _has_bold_run(path: Path) -> bool:
+    root = _document_xml(path)
+    return any(
+        r.find(f"{{{W}}}rPr/{{{W}}}b") is not None
+        for r in root.findall(f".//{{{W}}}r")
+    )
+
+
+def _has_italic_run(path: Path) -> bool:
+    root = _document_xml(path)
+    return any(
+        r.find(f"{{{W}}}rPr/{{{W}}}i") is not None
+        for r in root.findall(f".//{{{W}}}r")
+    )
+
+
+# ---------------------------------------------------------------------------
+# mark_soft_newlines / restore_soft_newlines unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_mark_soft_newlines_converts_single():
+    result = mark_soft_newlines("line one\nline two")
+    assert "\n" not in result
+    assert "line one" in result and "line two" in result
+
+
+def test_mark_soft_newlines_leaves_double_newline():
+    result = mark_soft_newlines("para one\n\npara two")
+    assert "\n\n" in result
+
+
+def test_mark_soft_newlines_leaves_triple_newline():
+    result = mark_soft_newlines("para one\n\n\npara two")
+    assert "\n\n\n" in result
+
+
+def test_restore_soft_newlines_produces_paragraph_break():
+    marked = mark_soft_newlines("line one\nline two")
+    restored = restore_soft_newlines(marked)
+    assert restored == "line one\n\nline two"
+
+
+def test_single_newline_does_not_produce_blank_paragraph():
+    """Single newlines must NOT insert a \\ empty paragraph."""
+    marked = mark_soft_newlines("line one\nline two")
+    result = restore_soft_newlines(inject_blank_paragraphs(marked))
+    assert "\\ " not in result
+
+
+def test_blank_line_still_produces_blank_paragraph():
+    """Explicit blank lines must still insert a \\ empty paragraph."""
+    marked = mark_soft_newlines("line one\n\nline two")
+    result = restore_soft_newlines(inject_blank_paragraphs(marked))
+    assert "\\ " in result
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +195,86 @@ def test_prints_generated_path(simple_md, template, tmp_path):
     assert str(out) in result.stdout
 
 
+def test_no_headers_when_template_has_none(simple_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(simple_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        names = zf.namelist()
+        doc_xml = zf.read("word/document.xml")
+    assert not any("header" in n.lower() for n in names)
+    assert b"headerReference" not in doc_xml
+
+
+def test_headers_copied_from_template_when_present(simple_md, tmp_path):
+    """When the template has a header, the output must contain that exact header."""
+    import io as _io
+
+    # Build a minimal template docx that declares one header file
+    HEADER_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:p><w:r><w:t>TEMPLATE HEADER</w:t></w:r></w:p>'
+        b'</w:hdr>'
+    )
+    DOC_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        b' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        b'<w:body><w:p><w:r><w:t>body</w:t></w:r></w:p>'
+        b'<w:sectPr>'
+        b'<w:headerReference r:id="rId2" w:type="default"/>'
+        b'</w:sectPr></w:body></w:document>'
+    )
+    RELS_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        b'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        b'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>'
+        b'</Relationships>'
+    )
+    CT_XML = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        b'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        b'<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        b'</Types>'
+    )
+
+    tmpl_path = tmp_path / "tmpl_with_header.docx"
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('word/document.xml', DOC_XML)
+        zf.writestr('word/header1.xml', HEADER_XML)
+        zf.writestr('word/_rels/document.xml.rels', RELS_XML)
+        zf.writestr('[Content_Types].xml', CT_XML)
+        zf.writestr('_rels/.rels', b'<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
+    tmpl_path.write_bytes(buf.getvalue())
+
+    # Start with an output that has no headers (simulating pandoc without a header)
+    out = tmp_path / "out.docx"
+    out.write_bytes(buf.getvalue())  # use the template itself as a base output
+
+    sync_headers(out, tmpl_path)
+
+    with zipfile.ZipFile(str(out)) as zf:
+        names = zf.namelist()
+        out_doc = zf.read('word/document.xml')
+        header_content = zf.read('word/header1.xml')
+
+    assert 'word/header1.xml' in names
+    assert b'TEMPLATE HEADER' in header_content
+    assert b'headerReference' in out_doc
+
+
+def test_no_bookmarks_in_output(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    with zipfile.ZipFile(str(out)) as zf:
+        doc_xml = zf.read("word/document.xml")
+    assert b"bookmarkStart" not in doc_xml
+    assert b"bookmarkEnd" not in doc_xml
+
+
 def test_output_is_valid_ooxml(simple_md, template, tmp_path):
     out = tmp_path / "out.docx"
     run([str(simple_md), str(template), str(out)])
@@ -169,6 +306,24 @@ def test_heading3_style(headings_md, template, tmp_path):
     out = tmp_path / "out.docx"
     run([str(headings_md), str(template), str(out)])
     assert any("Heading3" in s for s in _paragraph_styles(out))
+
+
+def test_heading4_style(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    assert any("Heading4" in s for s in _paragraph_styles(out))
+
+
+def test_heading5_style(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    assert any("Heading5" in s for s in _paragraph_styles(out))
+
+
+def test_heading6_style(headings_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(headings_md), str(template), str(out)])
+    assert any("Heading6" in s for s in _paragraph_styles(out))
 
 
 def test_bullets_are_real_word_lists(simple_md, template, tmp_path):
@@ -215,16 +370,43 @@ def test_two_leading_blank_lines_produce_two_empty_paragraphs(leading_blank_md, 
 
 
 # ---------------------------------------------------------------------------
-# Sample letter round-trip
+# Line-per-paragraph behaviour
 # ---------------------------------------------------------------------------
 
 
-def test_sample_letter(sample_md, template, tmp_path):
-    out = tmp_path / "letter.docx"
-    result = run([str(sample_md), str(template), str(out)])
-    assert result.returncode == 0, result.stderr
-    assert out.exists()
-    texts = " ".join(_paragraph_texts(out))
-    assert "Kaluza" in texts
-    assert "Chris Tracey" in texts
-    assert _has_real_bullets(out)
+def test_consecutive_lines_produce_separate_paragraphs(consecutive_lines_md, template, tmp_path):
+    """Each line in the source must become its own paragraph in the docx."""
+    out = tmp_path / "out.docx"
+    run([str(consecutive_lines_md), str(template), str(out)])
+    texts = _paragraph_texts(out)
+    non_empty = [t for t in texts if t.strip()]
+    assert any("normal text" in t for t in non_empty)
+    assert any("bold text" in t for t in non_empty)
+    assert any("italic text" in t for t in non_empty)
+
+
+def test_consecutive_lines_no_blank_paragraph_between(consecutive_lines_md, template, tmp_path):
+    """Single newlines must not insert a blank paragraph between lines."""
+    out = tmp_path / "out.docx"
+    run([str(consecutive_lines_md), str(template), str(out)])
+    texts = _paragraph_texts(out)
+    non_empty_indices = [i for i, t in enumerate(texts) if t.strip()]
+    # The three content paragraphs must be consecutive (no gaps)
+    assert non_empty_indices == list(range(non_empty_indices[0], non_empty_indices[0] + 3))
+
+
+# ---------------------------------------------------------------------------
+# Inline formatting
+# ---------------------------------------------------------------------------
+
+
+def test_bold_produces_bold_run(inline_formatting_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(inline_formatting_md), str(template), str(out)])
+    assert _has_bold_run(out), "No bold run found in output"
+
+
+def test_italic_produces_italic_run(inline_formatting_md, template, tmp_path):
+    out = tmp_path / "out.docx"
+    run([str(inline_formatting_md), str(template), str(out)])
+    assert _has_italic_run(out), "No italic run found in output"

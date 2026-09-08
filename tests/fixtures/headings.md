@@ -4,7 +4,13 @@
 
 ### Heading Three
 
-Body paragraph under heading three.
+#### Heading Four
+
+##### Heading Five
+
+###### Heading Six
+
+Body paragraph under headings.
 
 - Bullet A
 - Bullet B

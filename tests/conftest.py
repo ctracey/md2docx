@@ -4,8 +4,8 @@ import pytest
 from pathlib import Path
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SAMPLE = Path(__file__).parent.parent / "ref"
-SCRIPT = Path(__file__).parent.parent / "generate.py"
+SAMPLE = Path(__file__).parent.parent / "sample"
+SCRIPT = Path(__file__).parent.parent / "src" / "md2docx" / "generate.py"
 
 
 def run_generator(args: list[str]) -> subprocess.CompletedProcess:
@@ -19,7 +19,7 @@ def run_generator(args: list[str]) -> subprocess.CompletedProcess:
 @pytest.fixture
 def template(tmp_path):
     """Copy the sample template into a temp dir to avoid mutation."""
-    src = SAMPLE / "template-style.docx"
+    src = SAMPLE / "sample-style.docx"
     dst = tmp_path / "TEMPLATE.docx"
     dst.write_bytes(src.read_bytes())
     return dst

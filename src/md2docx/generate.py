@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
-from style_map import RunStyle, read_style_map, read_paragraph_style_ids, read_right_tab_stop, validate_template
+from md2docx.style_map import RunStyle, read_style_map, read_paragraph_style_ids, read_right_tab_stop, validate_template
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 

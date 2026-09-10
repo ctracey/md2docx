@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from style_map import KNOWN_LABELS, RunStyle, read_style_map
-from generate import apply_run_styles
+from md2docx.style_map import KNOWN_LABELS, RunStyle, read_style_map
+from md2docx.generate import apply_run_styles
 from tests.conftest import run_generator
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -275,10 +275,10 @@ def test_bullet_style_applied_after_right_tab_processing(template, tmp_path):
     """
     import shutil, subprocess, sys
     from pathlib import Path as P
-    from generate import (apply_right_tab_stops, inject_right_tab_markers,
-                          mark_soft_newlines, inject_blank_paragraphs,
-                          restore_soft_newlines, _RT_MARKER)
-    from style_map import read_right_tab_stop
+    from md2docx.generate import (apply_right_tab_stops, inject_right_tab_markers,
+                               mark_soft_newlines, inject_blank_paragraphs,
+                               restore_soft_newlines, _RT_MARKER)
+    from md2docx.style_map import read_right_tab_stop
 
     right_tab = read_right_tab_stop(template)
     assert right_tab is not None, "Template must define RightAlignedTabStop for this test"

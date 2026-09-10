@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from style_map import validate_template, KNOWN_LABELS
+from md2docx.style_map import validate_template, KNOWN_LABELS
 from tests.conftest import SAMPLE, run_generator
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ def _complete_template(tmp_path: Path) -> Path:
 
 def test_real_template_is_complete():
     """The committed template-style.docx must pass validation with no issues."""
-    issues = validate_template(SAMPLE / "template-style.docx")
+    issues = validate_template(SAMPLE / "sample-style.docx")
     assert issues == [], f"Real template has issues:\n" + "\n".join(issues)
 
 

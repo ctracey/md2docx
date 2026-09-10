@@ -1,8 +1,7 @@
 """Tests for generate.py — verified against real pandoc output.
 
-python-docx cannot open the generated DOCX because the template embeds
-custom fonts (DM Sans) whose MIME types pandoc doesn't register in
-[Content_Types].xml. Tests therefore inspect the OOXML directly via zipfile.
+Tests inspect OOXML directly via zipfile rather than opening with python-docx,
+since python-docx can be strict about content types and style availability.
 """
 
 import subprocess
@@ -13,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from md2docx.generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER, inject_page_break_markers, _PAGE_BREAK_MARKER, _PAGE_BREAK_XML
+from md2docx.generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, sync_fonts, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER, inject_page_break_markers, _PAGE_BREAK_MARKER, _PAGE_BREAK_XML
 from md2docx.style_map import RunStyle
 
 SCRIPT = Path(__file__).parent.parent / "src" / "md2docx" / "generate.py"
@@ -624,3 +623,55 @@ def test_italic_produces_italic_run(inline_formatting_md, template, tmp_path):
     out = tmp_path / "out.docx"
     run([str(inline_formatting_md), str(template), str(out)])
     assert _has_italic_run(out), "No italic run found in output"
+
+
+# ---------------------------------------------------------------------------
+# Embedded font regression — OPC package integrity
+# ---------------------------------------------------------------------------
+
+
+def test_font_relationship_targets_all_resolve(simple_md, template, tmp_path):
+    """Every Target in fontTable.xml.rels must exist as a real zip entry.
+
+    Pandoc copies fontTable.xml.rels from the reference doc but drops the
+    actual word/fonts/*.ttf binaries, producing an OPC package with dangling
+    relationships that Word and Google Docs reject.
+    """
+    out = tmp_path / "out.docx"
+    result = run([str(simple_md), str(template), str(out)])
+    assert result.returncode == 0, result.stderr
+
+    with zipfile.ZipFile(out) as zf:
+        zip_entries = set(zf.namelist())
+        font_rels = zf.read("word/_rels/fontTable.xml.rels") if "word/_rels/fontTable.xml.rels" in zip_entries else b""
+
+    import re
+    targets = re.findall(rb'Target="([^"]+)"', font_rels)
+    font_targets = [t.decode() for t in targets if b"://" not in t]
+
+    missing = [t for t in font_targets if f"word/{t}" not in zip_entries]
+    assert not missing, f"Dangling font relationship targets (missing from zip): {missing}"
+
+
+def test_font_content_types_present_when_fonts_embedded(simple_md, template, tmp_path):
+    """[Content_Types].xml must declare Default entries for ttf/odttf when fonts are embedded."""
+    out = tmp_path / "out.docx"
+    result = run([str(simple_md), str(template), str(out)])
+    assert result.returncode == 0, result.stderr
+
+    with zipfile.ZipFile(out) as zf:
+        zip_entries = set(zf.namelist())
+        font_rels = zf.read("word/_rels/fontTable.xml.rels") if "word/_rels/fontTable.xml.rels" in zip_entries else b""
+        ct = zf.read("[Content_Types].xml")
+
+    import re
+    targets = re.findall(rb'Target="([^"]+)"', font_rels)
+    font_targets = [t.decode() for t in targets if b"://" not in t]
+    if not font_targets:
+        pytest.skip("template has no embedded fonts")
+
+    extensions = {t.rsplit(".", 1)[-1].lower() for t in font_targets}
+    for ext in extensions:
+        assert f'Extension="{ext}"'.encode() in ct, (
+            f"[Content_Types].xml missing Default entry for .{ext}"
+        )

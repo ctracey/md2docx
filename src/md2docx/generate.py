@@ -616,6 +616,81 @@ def sync_headers(docx_path: Path, template_path: Path) -> None:
     _write_zip(docx_path, out_names, out_files)
 
 
+_FONT_TABLE_RELS_KEY = 'word/_rels/fontTable.xml.rels'
+_FONT_REL_TYPE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/font'
+_FONT_CONTENT_TYPES = {
+    'ttf': 'application/x-font-ttf',
+    'odttf': 'application/vnd.openxmlformats-officedocument.obfuscatedFont',
+}
+
+
+def sync_fonts(docx_path: Path, template_path: Path) -> None:
+    """Ensure embedded font binaries and their Content_Types entries are present.
+
+    Pandoc versions vary in what they carry forward from the reference doc:
+    some omit word/fonts/*.ttf binaries entirely; others copy them but omit
+    the <Default Extension="ttf" ContentType="..."/> entry from [Content_Types].xml.
+    Both produce a broken OPC package that Word and Google Docs reject.
+
+    This step fixes both gaps: copies any missing font binaries from the template,
+    then ensures [Content_Types].xml declares the right Default entries for every
+    font extension that appears in the output zip.
+    """
+    with zipfile.ZipFile(template_path, 'r') as zf:
+        tmpl_names = set(zf.namelist())
+        tmpl_files = {n: zf.read(n) for n in tmpl_names}
+    with zipfile.ZipFile(docx_path, 'r') as zf:
+        out_names = list(zf.namelist())
+        out_files = {n: zf.read(n) for n in out_names}
+
+    font_rels = out_files.get(_FONT_TABLE_RELS_KEY, b'')
+    if not font_rels:
+        return
+
+    # Each Target in fontTable.xml.rels is relative to word/
+    targets = re.findall(rb'Target="([^"]+)"', font_rels)
+    font_targets = [
+        t.decode() for t in targets
+        if b'://' not in t  # skip external
+    ]
+    if not font_targets:
+        return
+
+    # Copy any font binaries that are missing from the output
+    files_added = False
+    for rel_target in font_targets:
+        zip_path = f'word/{rel_target}'
+        if zip_path in out_files:
+            continue
+        if zip_path not in tmpl_files:
+            continue
+        out_files[zip_path] = tmpl_files[zip_path]
+        out_names.append(zip_path)
+        files_added = True
+
+    # Ensure [Content_Types].xml declares a Default for each font extension
+    # present in the output (pandoc copies the files but may omit content types).
+    ct = out_files.get(_CONTENT_TYPES_KEY, b'')
+    ct_changed = False
+    present_extensions = {
+        Path(f'word/{t}').suffix.lstrip('.').lower()
+        for t in font_targets
+        if f'word/{t}' in out_files
+    }
+    for ext in present_extensions:
+        mime = _FONT_CONTENT_TYPES.get(ext)
+        if mime and f'Extension="{ext}"'.encode() not in ct:
+            entry = f'<Default Extension="{ext}" ContentType="{mime}"/>'.encode()
+            ct = ct.replace(b'</Types>', entry + b'</Types>')
+            ct_changed = True
+
+    if not files_added and not ct_changed:
+        return
+
+    out_files[_CONTENT_TYPES_KEY] = ct
+    _write_zip(docx_path, out_names, out_files)
+
+
 def _build_rpr(style: RunStyle) -> ET.Element:
     """Build a fresh w:rPr element from a RunStyle."""
     rpr = ET.Element(f'{{{W}}}rPr')
@@ -980,6 +1055,7 @@ def main():
 
     strip_bookmarks(args.output)
     sync_headers(args.output, args.template)
+    sync_fonts(args.output, args.template)
     if right_tab:
         apply_right_tab_stops(args.output, right_tab)
     apply_run_styles(args.output, style_map)

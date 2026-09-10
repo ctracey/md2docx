@@ -5,12 +5,12 @@ Generate a styled DOCX from a Markdown file and a DOCX style template.
 All visual style — fonts, spacing, margins, header, footer — is inherited from
 the template. Body content is replaced entirely by the rendered Markdown.
 
-## Requirements
+## Prerequisites
 
-- Python 3.9+
-- [pandoc](https://pandoc.org/) — `brew install pandoc`
+- [pandoc](https://pandoc.org/) ≥ 3.11 — `brew install pandoc`
+- [uv](https://docs.astral.sh/uv/) — `brew install uv`
 
-No Python packages are needed at runtime.
+No Python packages are needed at runtime. Python itself is managed by uv (see [Development setup](#development-setup)).
 
 ## Usage
 
@@ -142,34 +142,45 @@ paragraph one
 paragraph two     ← blank paragraph appears between these two
 ```
 
+## Development setup
+
+Python 3.13 is pinned in `.python-version`. uv reads this automatically.
+
+```
+# Install uv (once, system-wide)
+brew install uv
+
+# Install Python 3.13 and project dependencies
+uv sync
+
+# Run the tests
+uv run pytest tests/ -v
+```
+
+`uv sync` creates a `.venv`, installs the pinned Python version if needed, and installs all dev dependencies from `uv.lock`. No separate pip or virtualenv step required.
+
 ## Repository structure
 
 ```
 .
-├── generate.py           # main script — the tool
-├── requirements-dev.txt  # test dependencies (pytest, python-docx)
+├── generate.py       # main script — the tool
+├── pyproject.toml    # project metadata and dev dependencies
+├── uv.lock           # locked dependency versions
+├── .python-version   # pins Python 3.13 for uv
 ├── specs/
-│   └── generate.md       # behavioural specification
+│   └── generate.md   # behavioural specification
 ├── tests/
-│   ├── conftest.py       # shared fixtures
-│   ├── test_generate.py  # test suite
+│   ├── conftest.py   # shared fixtures
+│   ├── test_generate.py
 │   └── fixtures/
-│       ├── simple.md     # minimal markdown with bullets
-│       └── headings.md   # markdown with heading levels
+│       ├── simple.md
+│       └── headings.md
 ```
 
 ## Running tests
 
-Install test dependencies once:
-
 ```
-pip install -r requirements-dev.txt
-```
-
-Run the suite:
-
-```
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 > **Note on test inspection:** The template embeds DM Sans fonts whose MIME

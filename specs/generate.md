@@ -51,6 +51,6 @@ Generated: <output path>
 
 ## Dependencies
 
-- **pandoc** ≥ 3.x — document conversion engine (`brew install pandoc`)
+- **pandoc** ≥ 3.11 — document conversion engine (`brew install pandoc`)
 - **Python** ≥ 3.9 — standard library only; no pip packages required at runtime
 - **python-docx** — test dependency only, used to inspect output in tests

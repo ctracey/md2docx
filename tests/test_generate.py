@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER, inject_page_break_markers, _PAGE_BREAK_MARKER, _PAGE_BREAK_XML
-from style_map import RunStyle
+from md2docx.generate import inject_blank_paragraphs, mark_soft_newlines, restore_soft_newlines, strip_bookmarks, sync_headers, check_required_styles, inject_title_styles, inject_right_tab_markers, apply_right_tab_stops, _RT_MARKER, inject_page_break_markers, _PAGE_BREAK_MARKER, _PAGE_BREAK_XML
+from md2docx.style_map import RunStyle
 
-SCRIPT = Path(__file__).parent.parent / "generate.py"
+SCRIPT = Path(__file__).parent.parent / "src" / "md2docx" / "generate.py"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 

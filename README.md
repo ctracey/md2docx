@@ -3,9 +3,9 @@
 Generate a styled DOCX from a Markdown file and a DOCX style guide.
 
 All visual style — fonts, spacing, margins, header, footer — is inherited from
-the template. Body content is replaced entirely by the rendered Markdown.
+the style guide. Body content is replaced entirely by the rendered Markdown.
 
-Style is defined in the template DOCX and mapped to the output based on structured and formatted markdown content. To get started, open the [sample style guide](samples/sample-style-guide.docx) and read the [Mapping convention](#mapping-convention) section to understand the extended mapping convention.
+Style is defined in the style guide DOCX and mapped to the output based on structured and formatted markdown content. To get started, open the [sample style guide](samples/sample-style-guide.docx) and read the [Mapping convention](#mapping-convention) section to understand the extended mapping convention.
 
 Pre-built DOCX fragments can also be inserted directly into the output via [Partials](#partials) — useful for tables, cover pages, or any section better authored in Word than markdown.
 
@@ -30,7 +30,7 @@ For prerequisites, dev setup, and running tests see [docs/env-setup.md](docs/env
 ### CLI
 
 ```
-uv run md2docx <content.md> <template.docx> <output.docx> [--partial NAME=partial.docx ...]
+uv run md2docx <content.md> <style-guide.docx> <output.docx> [--partial NAME=partial.docx ...]
 ```
 
 **Example:**
@@ -50,7 +50,7 @@ from md2docx import convert, ConversionError
 try:
     convert(
         content=Path("doc.md"),
-        template=Path("template.docx"),
+        template=Path("style-guide.docx"),
         output=Path("out.docx"),
         partials={"SECTION": Path("section.docx")},  # optional
     )
@@ -87,9 +87,9 @@ dependencies = ["md2docx"]
 | Extended | Single newline | — | New paragraph (no gap) |
 | Extended | Blank line | — | Visible empty paragraph |
 
-**Native mappings** (headings, bullets, blank lines) are applied automatically by pandoc using the named paragraph styles in the template.
+**Native mappings** (headings, bullets, blank lines) are applied automatically by pandoc using the named paragraph styles in the style guide.
 
-**Label mappings** (Bold text, Italic text, Code block text, Bullet point text, RightAlignedTabStop) are discovered by scanning the template body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error. The Code block label applies to both inline backtick code and fenced code blocks.
+**Label mappings** (Bold text, Italic text, Code block text, Bullet point text, RightAlignedTabStop) are discovered by scanning the style guide body for a paragraph whose full text exactly matches the label name. The run formatting of that paragraph — font, size, colour, etc. — is applied to the corresponding markdown construct. Each label must appear exactly once; duplicates are an error. The Code block label applies to both inline backtick code and fenced code blocks.
 
 **Right-aligned tab stop (`>>`):** the `RightAlignedTabStop` label is special — it must be a paragraph demonstrating a right-aligned tab stop (validated on load; errors if the paragraph has no right-aligned tab in its pPr). Use `>>` anywhere on a line to split it: text before `>>` stays left, text after `>>` is pulled to the right tab stop position. Works in headings and body text alike. Nothing on the left is valid.
 
@@ -101,7 +101,7 @@ Normal text >> right aligned note
 >> purely right aligned
 ```
 
-**Title and Subtitle** are matched directly to the `Title` and `Subtitle` paragraph styles defined in the template. Prefix a line with `%` for Title or `%%` for Subtitle — each can appear anywhere in the document independently.
+**Title and Subtitle** are matched directly to the `Title` and `Subtitle` paragraph styles defined in the style guide. Prefix a line with `%` for Title or `%%` for Subtitle — each can appear anywhere in the document independently.
 
 ```
 %My Document Title
@@ -135,7 +135,7 @@ paragraph two     ← blank paragraph appears between these two
 Partials let you splice pre-built DOCX sections into a generated document. Place a `{{NAME}}` placeholder on its own line in the markdown, then pass the matching DOCX file with `--partial`:
 
 ```
-uv run md2docx content.md template.docx output.docx \
+uv run md2docx content.md style-guide.docx output.docx \
   --partial INTRO=intro.docx \
   --partial TABLE=data-table.docx
 ```
@@ -154,7 +154,7 @@ The `--partial` flag can be repeated for as many named placeholders as needed.
 {{TABLE}}
 ```
 
-Each placeholder line is replaced with the full body content of the named partial DOCX. The partial renders with its own font properties — font face, size, colour — exactly as it looks when opened in Word, independent of the output template's style definitions. The template does not override partial styling.
+Each placeholder line is replaced with the full body content of the named partial DOCX. The partial renders with its own font properties — font face, size, colour — exactly as it looks when opened in Word, independent of the output style guide's style definitions. The style guide does not override partial styling.
 
 **Partial style guide:** partials may use a different style guide from the main document. A separate style DOCX for partials is included in `samples/sample-style-guide-partials.docx`.
 

@@ -14,6 +14,8 @@ from pathlib import Path
 
 from md2docx.style_map import RunStyle, read_style_map, read_paragraph_style_ids, read_right_tab_stop, validate_template
 
+from md2docx.exceptions import ConversionError
+
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 

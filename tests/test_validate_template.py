@@ -90,7 +90,7 @@ def _complete_template(tmp_path: Path) -> Path:
 
 def test_real_template_is_complete():
     """The committed template-style.docx must pass validation with no issues."""
-    issues = validate_template(SAMPLE / "sample-style.docx")
+    issues = validate_template(SAMPLE / "sample-style-guide.docx")
     assert issues == [], f"Real template has issues:\n" + "\n".join(issues)
 
 

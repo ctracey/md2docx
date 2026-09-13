@@ -4,4 +4,5 @@ __pycache__/
 .venv/
 .DS_Store
 *.docx
-!sample/sample-style.docx
+!sample/sample-style-guide.docx
+!sample/sample-style-guide-partials.docx

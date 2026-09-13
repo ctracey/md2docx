@@ -1,6 +1,7 @@
 """Pipeline orchestrator and CLI entry point."""
 
 import argparse
+import importlib.metadata
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,10 @@ def main() -> None:
     parser.add_argument("content", type=Path, help="Markdown input file (.md)")
     parser.add_argument("template", type=Path, help="DOCX style template (.docx)")
     parser.add_argument("output", type=Path, help="Output DOCX file (.docx)")
+    parser.add_argument(
+        "--version", action="version",
+        version=f"%(prog)s {importlib.metadata.version('md2docx')}",
+    )
     parser.add_argument(
         "--partial", metavar="NAME=FILE.docx", action="append", default=[],
         help="Splice partial DOCX at {{NAME}} placeholder (repeatable)",

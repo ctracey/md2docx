@@ -9,7 +9,7 @@ requires-python = ">=3.9"
 dependencies = []
 
 [project.scripts]
-md2docx = "md2docx.generate:main"
+md2docx = "md2docx.converter:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/md2docx"]

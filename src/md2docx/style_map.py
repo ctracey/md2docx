@@ -213,3 +213,19 @@ def read_paragraph_style_ids(template_path: Path) -> set[str]:
         if style.get(f'{{{W}}}type') == 'paragraph'
         and style.get(f'{{{W}}}styleId')
     }
+
+
+@dataclass
+class StyleMap:
+    """All style information extracted from a DOCX template."""
+    run_styles: dict[str, RunStyle]
+    para_styles: set[str]
+    right_tab: dict | None
+
+    @classmethod
+    def from_template(cls, template: Path) -> StyleMap:
+        return cls(
+            run_styles=read_style_map(template),
+            para_styles=read_paragraph_style_ids(template),
+            right_tab=read_right_tab_stop(template),
+        )

@@ -81,7 +81,35 @@ uv run pytest tests/ -v
 > using python-docx (which fails to open such files). This is a test-only
 > concern — the generated DOCX opens correctly in Word and Google Docs.
 
-## Usage
+## Library usage
+
+Install the package and import directly — do not shell out to the CLI:
+
+```python
+from pathlib import Path
+from md2docx import convert, ConversionError
+
+try:
+    convert(
+        content=Path("doc.md"),
+        template=Path("template.docx"),
+        output=Path("out.docx"),
+        partials={"SECTION": Path("section.docx")},  # optional
+    )
+except ConversionError as e:
+    handle_error(str(e))
+```
+
+`convert()` raises `ConversionError` on any failure (missing file, missing pandoc, bad template, missing styles). It never calls `sys.exit()` — that stays in the CLI layer where it belongs.
+
+Other Python projects should declare `md2docx` as a dependency:
+
+```toml
+# your project's pyproject.toml
+dependencies = ["md2docx"]
+```
+
+## CLI usage
 
 ```
 uv run md2docx <content.md> <template.docx> <output.docx> [--partial NAME=partial.docx ...]

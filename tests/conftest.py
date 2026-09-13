@@ -5,7 +5,7 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE = Path(__file__).parent.parent / "sample"
-SCRIPT = Path(__file__).parent.parent / "src" / "md2docx" / "generate.py"
+SCRIPT = Path(__file__).parent.parent / "src" / "md2docx" / "converter.py"
 
 
 def run_generator(args: list[str]) -> subprocess.CompletedProcess:

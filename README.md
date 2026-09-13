@@ -17,32 +17,36 @@ the template. Body content is replaced entirely by the rendered Markdown.
 
 ## Architecture
 
-The tool runs a two-phase pipeline:
+The pipeline has four stages:
 
-**Phase 1 — Preprocessing (Python → modified Markdown)**
+```
+Read template → StyleMap
+Read markdown → Content (validate + transform)
+Render        → pandoc produces raw DOCX
+Post-process  → fix up the DOCX output
+```
 
-The raw Markdown is transformed before pandoc sees it:
+**StyleMap** (`style_map.py`) — scans the template body for labelled paragraphs (`Bold text`, `Italic text`, `Code block text`, `Bullet point text`, `RightAlignedTabStop`) and reads paragraph styles and tab stop definitions. The run properties of each label define how that markdown construct is rendered.
 
-1. Page break markers (`===`) are replaced with a sentinel character that survives the pipeline.
-2. Right-tab markers (`>>`) are replaced with a sentinel so pandoc doesn't treat them as blockquotes.
-3. Title/Subtitle prefix lines (`%`, `%%`) are rewritten as pandoc custom-style fenced divs.
-4. Single newlines are marked as soft breaks so every source line becomes its own paragraph.
-5. Blank lines are expanded into explicit `\ ` empty paragraphs.
-6. Sentinels are resolved — page break sentinels become raw OpenXML fenced blocks.
+**Content** (`content.py`) — validates the markdown against the StyleMap (raises an error if required labels are missing), then transforms the raw text before pandoc sees it:
 
-**Phase 2 — Post-processing (DOCX → styled DOCX)**
+1. Title/Subtitle prefix lines (`%`, `%%`) → pandoc custom-style fenced divs
+2. Page break markers (`===`) → sentinel character that survives the pipeline
+3. Right-tab markers (`>>`) → sentinel so pandoc doesn't treat them as blockquotes
+4. Single newlines → marked as soft breaks so every source line becomes its own paragraph
+5. Blank lines → explicit `\ ` empty paragraphs
+6. Sentinels resolved → page break sentinels become raw OpenXML fenced blocks
 
-Pandoc outputs a `.docx` (a ZIP of OOXML files). Python then manipulates `word/document.xml` directly via `zipfile` + `xml.etree.ElementTree`:
+**Render** (`converter.py`) — passes the transformed markdown and template to pandoc, which produces a raw DOCX.
 
-1. Heading bookmarks are stripped (pandoc inserts them; Word renders them as visible margin markers).
-2. Headers are synced from the template (pandoc ignores reference-doc headers).
-3. Right tab stops are applied — sentinel runs are split and `<w:tab/>` elements inserted.
-4. Run styles are applied — bold, italic, code, and bullet runs get font/colour/size from template labels.
-5. Partials are spliced — `{{NAME}}` placeholder paragraphs are replaced with content from named DOCX files, with style inlining and relationship remapping.
+**Post-process** (`document.py`) — manipulates `word/document.xml` directly via `zipfile` + `xml.etree.ElementTree`:
 
-**Style discovery (`style_map.py`)**
-
-At startup, `style_map.py` scans the template body for labelled paragraphs (`Bold text`, `Italic text`, `Code block text`, `Bullet point text`, `RightAlignedTabStop`). The run properties of each label paragraph define how that construct is rendered in the output.
+1. Heading bookmarks stripped (pandoc inserts them; Word renders them as visible margin markers)
+2. Headers synced from the template (pandoc ignores reference-doc headers)
+3. Fonts synced from the template (pandoc may drop embedded font binaries)
+4. Right tab stops applied — sentinel runs split and `<w:tab/>` elements inserted
+5. Run styles applied — bold, italic, code, and bullet runs get font/colour/size from template labels
+6. Partials spliced — `{{NAME}}` placeholder paragraphs replaced with content from named DOCX files
 
 ## Prerequisites
 
@@ -80,13 +84,13 @@ uv run pytest tests/ -v
 ## Usage
 
 ```
-uv run python src/md2docx/generate.py <content.md> <template.docx> <output.docx> [--partial NAME=partial.docx ...]
+uv run md2docx <content.md> <template.docx> <output.docx> [--partial NAME=partial.docx ...]
 ```
 
 **Example:**
 
 ```
-uv run python src/md2docx/generate.py sample/sample-content.md sample/sample-style.docx output.docx
+uv run md2docx sample/sample-content.md sample/sample-style.docx output.docx
 ```
 
 ## Partials
@@ -94,7 +98,7 @@ uv run python src/md2docx/generate.py sample/sample-content.md sample/sample-sty
 Partials let you splice pre-built DOCX sections into a generated document. Place a `{{NAME}}` placeholder on its own line in the markdown, then pass the matching DOCX file with `--partial`:
 
 ```
-uv run python src/md2docx/generate.py content.md template.docx output.docx \
+uv run md2docx content.md template.docx output.docx \
   --partial INTRO=intro.docx \
   --partial TABLE=data-table.docx
 ```
@@ -133,13 +137,13 @@ The `sample/` folder contains working examples that exercise every supported fea
 Run the standard example:
 
 ```
-uv run python src/md2docx/generate.py sample/sample-content.md sample/sample-style.docx sample/output.docx
+uv run md2docx sample/sample-content.md sample/sample-style.docx sample/output.docx
 ```
 
 Run the partials example:
 
 ```
-uv run python src/md2docx/generate.py sample/sample-content2.md sample/sample-style-partials.docx sample/output2.docx \
+uv run md2docx sample/sample-content2.md sample/sample-style-partials.docx sample/output2.docx \
   --partial "SAMPLE_PARTIAL-1=sample/sample-partial1.docx" \
   --partial "SAMPLE_PARTIAL-2=sample/sample-partial2.docx"
 ```
@@ -214,17 +218,23 @@ paragraph two     ← blank paragraph appears between these two
 ├── src/
 │   └── md2docx/
 │       ├── __init__.py
-│       ├── generate.py   # main script — the tool
-│       └── style_map.py  # template style discovery
-├── pyproject.toml        # project metadata and dev dependencies
-├── uv.lock               # locked dependency versions
-├── .python-version       # pins Python 3.13 for uv
+│       ├── exceptions.py   # ConversionError
+│       ├── style_map.py    # StyleMap — reads styles from a template
+│       ├── content.py      # Content — validates and transforms markdown
+│       ├── document.py     # post-processing operations on the output DOCX
+│       └── converter.py    # pipeline orchestrator + CLI entry point
+├── pyproject.toml          # project metadata and dev dependencies
+├── uv.lock                 # locked dependency versions
+├── .python-version         # pins Python 3.13 for uv
 ├── specs/
-│   └── generate.md       # behavioural specification
+│   └── generate.md         # behavioural specification
 ├── tests/
-│   ├── conftest.py       # shared fixtures
-│   ├── test_generate.py
+│   ├── conftest.py
+│   ├── test_exceptions.py
 │   ├── test_style_map.py
 │   ├── test_validate_template.py
+│   ├── test_content.py
+│   ├── test_document.py
+│   ├── test_converter.py
 │   └── fixtures/
 ```

@@ -21,6 +21,16 @@ uv sync
 
 `uv sync` creates a `.venv`, installs the pinned Python version if needed, and installs all dev dependencies from `uv.lock`. No separate pip or virtualenv step required.
 
+## Running the tool locally
+
+During development, use `uv run` to execute against local source without installing:
+
+```
+uv run md2docx <content.md> <style-guide.docx> <output.docx>
+```
+
+This always reflects your current working-tree changes. The globally installed tool (`uv tool install .`) is a snapshot — changes to source are not picked up until you reinstall.
+
 ## Running tests
 
 ```

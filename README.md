@@ -29,15 +29,25 @@ For prerequisites, dev setup, and running tests see [docs/env-setup.md](docs/env
 
 ### CLI
 
+Install once:
+
 ```
-uv run md2docx <content.md> <style-guide.docx> <output.docx> [--partial NAME=partial.docx ...]
+uv tool install .
+```
+
+Then run from anywhere:
+
+```
+md2docx <content.md> <style-guide.docx> <output.docx> [--partial NAME=partial.docx ...]
 ```
 
 **Example:**
 
 ```
-uv run md2docx samples/sample-content.md samples/sample-style-guide.docx output.docx
+md2docx samples/sample-content.md samples/sample-style-guide.docx output.docx
 ```
+
+> **Dev:** To run against local source without installing, use `uv run md2docx` in place of `md2docx`.
 
 ### Library
 
@@ -135,7 +145,7 @@ paragraph two     ← blank paragraph appears between these two
 Partials let you splice pre-built DOCX sections into a generated document. Place a `{{NAME}}` placeholder on its own line in the markdown, then pass the matching DOCX file with `--partial`:
 
 ```
-uv run md2docx content.md style-guide.docx output.docx \
+md2docx content.md style-guide.docx output.docx \
   --partial INTRO=intro.docx \
   --partial TABLE=data-table.docx
 ```
@@ -174,13 +184,13 @@ The `samples/` folder contains working examples that exercise every supported fe
 Run the standard example:
 
 ```
-uv run md2docx samples/sample-content.md samples/sample-style-guide.docx samples/output.docx
+md2docx samples/sample-content.md samples/sample-style-guide.docx samples/output.docx
 ```
 
 Run the partials example:
 
 ```
-uv run md2docx samples/sample-content2.md samples/sample-style-guide-partials.docx samples/output2.docx \
+md2docx samples/sample-content2.md samples/sample-style-guide-partials.docx samples/output2.docx \
   --partial "SAMPLE_PARTIAL-1=samples/sample-partial1.docx" \
   --partial "SAMPLE_PARTIAL-2=samples/sample-partial2.docx"
 ```

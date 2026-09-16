@@ -75,8 +75,16 @@ def mark_soft_newlines(text: str) -> str:
 
     Each line becomes its own paragraph. Explicit blank lines still produce
     a visible empty paragraph via inject_blank_paragraphs.
+
+    Fenced code block content is left untouched so internal newlines are not
+    corrupted by the sentinel → double-newline restore step.
     """
-    return re.sub(r'(?<!\n)\n(?!\n)', _SOFT_NL, text)
+    # Split on fenced code block delimiters (``` or ~~~, with optional info string).
+    # Even-indexed segments are outside code blocks; odd-indexed are inside.
+    parts = re.split(r'(^[ \t]*(?:```|~~~)[^\n]*\n.*?^[ \t]*(?:```|~~~)[^\n]*$)', text, flags=re.MULTILINE | re.DOTALL)
+    for i in range(0, len(parts), 2):
+        parts[i] = re.sub(r'(?<!\n)\n(?!\n)', _SOFT_NL, parts[i])
+    return ''.join(parts)
 
 
 def restore_soft_newlines(text: str) -> str:

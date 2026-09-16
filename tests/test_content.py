@@ -58,6 +58,20 @@ def test_blank_line_still_produces_blank_paragraph():
     assert "\\ " in result
 
 
+def test_mark_soft_newlines_skips_fenced_code_block():
+    md = "intro\n```python\nline one\nline two\n```\noutro"
+    result = mark_soft_newlines(md)
+    # Newlines inside the fence must survive unchanged
+    assert "line one\nline two" in result
+
+
+def test_fenced_code_block_no_blank_paragraph_inserted():
+    md = "intro\n```python\nline one\nline two\n```\noutro"
+    result = restore_soft_newlines(inject_blank_paragraphs(mark_soft_newlines(md)))
+    # No blank paragraph sentinel should appear inside the code block
+    assert result.count("\\ ") == 0
+
+
 # ---------------------------------------------------------------------------
 # inject_blank_paragraphs
 # ---------------------------------------------------------------------------
